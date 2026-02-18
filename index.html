@@ -2498,11 +2498,19 @@
                 <h2 class="text-2xl font-bold text-slate-900 mb-6">Records</h2>
                 
                 <!-- Check if we have any age group records to show the sorting option -->
-                <div id="recordsSortContainer" class="mb-6 flex gap-4 items-center">
-                    <label for="recordsSortSelect" class="font-semibold text-slate-700">Filter by:</label>
-                    <select id="recordsSortSelect" class="px-4 py-2 border border-slate-300 rounded-lg font-semibold" onchange="renderRecords()">
-                        <option value="ageGroup" selected>Age Group</option>
-                    </select>
+                <div id="recordsSortContainer" class="mb-6 flex flex-wrap gap-4 items-center">
+                    <div class="flex gap-2 items-center">
+                        <label for="recordsEventSelect" class="font-semibold text-slate-700">Event:</label>
+                        <select id="recordsEventSelect" class="px-4 py-2 border border-slate-300 rounded-lg font-semibold" onchange="renderRecords()">
+                            <option value="all" selected>All Events</option>
+                        </select>
+                    </div>
+                    <div class="flex gap-2 items-center">
+                        <label for="recordsSortSelect" class="font-semibold text-slate-700">Filter by:</label>
+                        <select id="recordsSortSelect" class="px-4 py-2 border border-slate-300 rounded-lg font-semibold" onchange="renderRecords()">
+                            <option value="ageGroup" selected>Age Group</option>
+                        </select>
+                    </div>
                 </div>
                 
                 <div id="recordsGroupContainer" class="mb-6 flex gap-4 items-center">
@@ -12817,12 +12825,35 @@ bob@example.com,scorekeeper
                 console.log(`✅ Cleaned up ${removedWrongGender} wrong-gender records and ${removedArchivedAge} archived-age records`);
             }
             
+            // Get selected event filter
+            const eventSelect = document.getElementById('recordsEventSelect');
+            const selectedEventId = eventSelect ? eventSelect.value : 'all';
+            
+            // Populate event filter options if not already done
+            if (eventSelect && eventSelect.options.length === 1) {
+                const uniqueEvents = [...new Set(records.map(r => r.eventType))].sort();
+                uniqueEvents.forEach(eventType => {
+                    const option = document.createElement('option');
+                    option.value = eventType;
+                    option.text = eventType;
+                    eventSelect.appendChild(option);
+                });
+            }
+            
             const grid = document.getElementById('recordsGrid');
             const sortContainer = document.getElementById('recordsSortContainer');
             
-            // Filter records to only show those for existing events
+            // Filter records to only show those for existing events AND selected event filter
             const validRecords = records.filter(record => {
-                return events.some(e => e.id === record.eventId);
+                // Must have a valid event
+                if (!events.some(e => e.id === record.eventId)) return false;
+                
+                // Filter by selected event if not "all"
+                if (selectedEventId !== 'all' && record.eventType !== selectedEventId) {
+                    return false;
+                }
+                
+                return true;
             });
             
             console.log('📊 Total records in app:', records.length);
