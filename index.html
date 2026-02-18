@@ -12765,6 +12765,44 @@ bob@example.com,scorekeeper
 
         function renderRecords() {
             console.log('🎯 renderRecords() called');
+            
+            // Auto-cleanup: Remove records with wrong gender or archived age categories
+            let recordsBeforeCleanup = records.length;
+            let removedWrongGender = 0;
+            let removedArchivedAge = 0;
+            
+            // Remove records with wrong gender
+            records = records.filter(record => {
+                const competitor = competitors.find(c => c.id === record.competitorId);
+                if (!competitor) return true;
+                const competitorGender = competitor.gender || 'Unknown';
+                if (record.gender !== competitorGender) {
+                    removedWrongGender++;
+                    console.log(`🗑️ Removed ${record.competitorName}'s record from wrong gender (${record.gender} → should be ${competitorGender})`);
+                    return false;
+                }
+                return true;
+            });
+            
+            // Remove records from archived age categories
+            records = records.filter(record => {
+                const competitor = competitors.find(c => c.id === record.competitorId);
+                if (!competitor) return true;
+                const currentAge = competitor.ageGroup || getCompetitorAgeCategory(competitor.age, competitor.yearGroup, competitor.yearGroupName) || 'Senior';
+                if (record.ageGroup !== currentAge) {
+                    removedArchivedAge++;
+                    console.log(`🗑️ Removed ${record.competitorName}'s record from archived category (${record.ageGroup} → current: ${currentAge})`);
+                    return false;
+                }
+                return true;
+            });
+            
+            // Save if records were removed
+            if (removedWrongGender > 0 || removedArchivedAge > 0) {
+                saveData();
+                console.log(`✅ Cleaned up ${removedWrongGender} wrong-gender records and ${removedArchivedAge} archived-age records`);
+            }
+            
             const grid = document.getElementById('recordsGrid');
             const sortContainer = document.getElementById('recordsSortContainer');
             
