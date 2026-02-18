@@ -7198,16 +7198,27 @@ bob@example.com,scorekeeper
             // Disable editing buttons if locked
             document.getElementById('btnAddEvent').disabled = isLocked;
             document.getElementById('btnImportCSV').disabled = isLocked;
-            document.getElementById('btnAddEvent').classList.toggle('opacity-50 cursor-not-allowed', isLocked);
-            document.getElementById('btnImportCSV').classList.toggle('opacity-50 cursor-not-allowed', isLocked);
+            if (isLocked) {
+                document.getElementById('btnAddEvent').classList.add('opacity-50', 'cursor-not-allowed');
+                document.getElementById('btnImportCSV').classList.add('opacity-50', 'cursor-not-allowed');
+            } else {
+                document.getElementById('btnAddEvent').classList.remove('opacity-50', 'cursor-not-allowed');
+                document.getElementById('btnImportCSV').classList.remove('opacity-50', 'cursor-not-allowed');
+            }
             
             // Disable competitor management buttons if locked
             document.getElementById('btnImportCompetitorCSV').disabled = isLocked;
             document.getElementById('btnAddCompetitor').disabled = isLocked;
             document.getElementById('btnClearCompetitors').disabled = isLocked;
-            document.getElementById('btnImportCompetitorCSV').classList.toggle('opacity-50 cursor-not-allowed', isLocked);
-            document.getElementById('btnAddCompetitor').classList.toggle('opacity-50 cursor-not-allowed', isLocked);
-            document.getElementById('btnClearCompetitors').classList.toggle('opacity-50 cursor-not-allowed', isLocked);
+            if (isLocked) {
+                document.getElementById('btnImportCompetitorCSV').classList.add('opacity-50', 'cursor-not-allowed');
+                document.getElementById('btnAddCompetitor').classList.add('opacity-50', 'cursor-not-allowed');
+                document.getElementById('btnClearCompetitors').classList.add('opacity-50', 'cursor-not-allowed');
+            } else {
+                document.getElementById('btnImportCompetitorCSV').classList.remove('opacity-50', 'cursor-not-allowed');
+                document.getElementById('btnAddCompetitor').classList.remove('opacity-50', 'cursor-not-allowed');
+                document.getElementById('btnClearCompetitors').classList.remove('opacity-50', 'cursor-not-allowed');
+            }
             
             document.querySelectorAll('.view-section').forEach(v => v.classList.add('hidden'));
             document.getElementById('tournamentDetailView').classList.remove('hidden');
