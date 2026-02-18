@@ -9448,15 +9448,28 @@ bob@example.com,scorekeeper
 
         function normalizeTimeFormat(timeValue) {
             if (!timeValue) return timeValue;
+            
             // Convert mm.ss.ms format to mm:ss.ms format
-            // Count the number of dots/colons
             const dotCount = (timeValue.match(/\./g) || []).length;
             const colonCount = (timeValue.match(/:/g) || []).length;
             
             // If it has 3 dots (mm.ss.ms format), replace the first dot with colon
             if (dotCount === 2 && colonCount === 0) {
-                return timeValue.replace('.', ':');
+                timeValue = timeValue.replace('.', ':');
             }
+            
+            // Pad milliseconds to 2 digits (e.g., .5 → .50, 1.5 → 1.50)
+            // Pattern: anything before the last dot, then the milliseconds
+            const parts = timeValue.split('.');
+            if (parts.length === 2) {
+                // Has milliseconds part
+                const ms = parts[1];
+                if (ms.length === 1) {
+                    // Single digit ms, pad to 2
+                    timeValue = parts[0] + '.' + ms + '0';
+                }
+            }
+            
             return timeValue;
         }
 
@@ -9466,7 +9479,7 @@ bob@example.com,scorekeeper
             
             let timeValue = e.target.value;
             
-            // Normalize time format: mm.ss.ms → mm:ss.ms
+            // Normalize time format: mm.ss.ms → mm:ss.ms, and .5 → .50
             timeValue = normalizeTimeFormat(timeValue);
             e.target.value = timeValue;
             
@@ -9474,18 +9487,20 @@ bob@example.com,scorekeeper
             saveEventResult(eventId, competitorId, timeValue, '');
             renderEventCompetitorsResults();
             
-            // Move to next input after render completes
+            // Move to next competitor's input
             setTimeout(() => {
                 const timeInputs = Array.from(document.querySelectorAll('input[placeholder*="Time"], input[placeholder*="Distance"]'));
                 if (timeInputs.length === 0) return;
                 
-                // Find first empty time input, or move to next one after current position
-                const firstEmpty = timeInputs.find(input => !input.value || input.value.trim() === '');
-                if (firstEmpty) {
-                    firstEmpty.focus();
-                    firstEmpty.select();
-                } else {
-                    // All have values, move to first one
+                // Find current input position
+                const currentIndex = timeInputs.indexOf(e.target);
+                
+                // Move to next input (wrapping if at end)
+                if (currentIndex >= 0 && currentIndex < timeInputs.length - 1) {
+                    timeInputs[currentIndex + 1].focus();
+                    timeInputs[currentIndex + 1].select();
+                } else if (currentIndex === timeInputs.length - 1) {
+                    // At the last input, wrap to first
                     timeInputs[0].focus();
                     timeInputs[0].select();
                 }
@@ -9498,7 +9513,7 @@ bob@example.com,scorekeeper
             
             let timeValue = e.target.value;
             
-            // Normalize time format: mm.ss.ms → mm:ss.ms
+            // Normalize time format: mm.ss.ms → mm:ss.ms, and .5 → .50
             timeValue = normalizeTimeFormat(timeValue);
             e.target.value = timeValue;
             
@@ -9507,13 +9522,15 @@ bob@example.com,scorekeeper
                 const timeInputs = Array.from(document.querySelectorAll('input[placeholder*="Time"]'));
                 if (timeInputs.length === 0) return;
                 
-                // Find first empty time input, or move to next one after current position
-                const firstEmpty = timeInputs.find(input => !input.value || input.value.trim() === '');
-                if (firstEmpty) {
-                    firstEmpty.focus();
-                    firstEmpty.select();
-                } else {
-                    // All have values, move to first one
+                // Find current input position
+                const currentIndex = timeInputs.indexOf(e.target);
+                
+                // Move to next input (wrapping if at end)
+                if (currentIndex >= 0 && currentIndex < timeInputs.length - 1) {
+                    timeInputs[currentIndex + 1].focus();
+                    timeInputs[currentIndex + 1].select();
+                } else if (currentIndex === timeInputs.length - 1) {
+                    // At the last input, wrap to first
                     timeInputs[0].focus();
                     timeInputs[0].select();
                 }
