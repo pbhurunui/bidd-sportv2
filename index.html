@@ -8686,7 +8686,7 @@ bob@example.com,scorekeeper
                                         <div class="flex gap-2 mt-2">
                                             <input type="text" placeholder="Time/Distance (mm:ss.ms or mm.ss.ms)" 
                                                 value="${result?.time || ''}"
-                                                onkeydown="if (event.key === 'Enter') { event.preventDefault(); saveEventResult('${event.id}', '${competitor.id}', this.value, '${result?.position || ''}'); searchCompetitorsForQuickEntry(); setTimeout(() => { const inputs = document.querySelectorAll('input[placeholder*=\"Time\"]'); const idx = Array.from(inputs).indexOf(this); if (idx >= 0 && idx < inputs.length - 1) { inputs[idx + 1].focus(); inputs[idx + 1].select(); } }, 100); }"
+                                                onkeydown="handleTimeInputEnter(event, '${event.id}', '${competitor.id}')"
                                                 onchange="saveEventResult('${event.id}', '${competitor.id}', this.value, '${result?.position || ''}'); searchCompetitorsForQuickEntry();"
                                                 class="flex-1 px-3 py-2 border border-slate-300 rounded text-sm">
                                             <input type="number" placeholder="Position" min="1" max="100"
@@ -9447,6 +9447,42 @@ bob@example.com,scorekeeper
         }
 
         function handleTimeInputKeydown(e, currentEventId, currentCompetitorId) {
+        function handleTimeInputEnter(e, eventId, competitorId, isOpenEvent = false) {
+            if (e.key !== 'Enter') return;
+            e.preventDefault();
+            
+            const timeValue = e.target.value;
+            
+            // Save the result
+            saveEventResult(eventId, competitorId, timeValue, '');
+            renderEventCompetitorsResults();
+            
+            // Move to next input
+            setTimeout(() => {
+                const timeInputs = document.querySelectorAll('input[placeholder*="Time"], input[placeholder*="Distance"]');
+                const currentIndex = Array.from(timeInputs).indexOf(e.target);
+                if (currentIndex >= 0 && currentIndex < timeInputs.length - 1) {
+                    timeInputs[currentIndex + 1].focus();
+                    timeInputs[currentIndex + 1].select();
+                }
+            }, 50);
+        }
+
+        function handleTimeInputEnterHeats(e) {
+            if (e.key !== 'Enter') return;
+            e.preventDefault();
+            
+            // Move to next input
+            setTimeout(() => {
+                const timeInputs = document.querySelectorAll('input[placeholder*="Time"]');
+                const currentIndex = Array.from(timeInputs).indexOf(e.target);
+                if (currentIndex >= 0 && currentIndex < timeInputs.length - 1) {
+                    timeInputs[currentIndex + 1].focus();
+                    timeInputs[currentIndex + 1].select();
+                }
+            }, 50);
+        }
+
             // If Enter is pressed, save the result and move to next competitor
             if (e.key === 'Enter') {
                 e.preventDefault();
@@ -9645,7 +9681,7 @@ bob@example.com,scorekeeper
                                 </button>
                                 <input type="${isFieldEvent ? 'number' : 'text'}" placeholder="${isFieldEvent ? 'Distance (m)' : 'Time (mm:ss.ms or mm.ss.ms)'}" 
                                     value="${result && result.time ? result.time : ''}"
-                                    onkeydown="if (event.key === 'Enter') { event.preventDefault(); saveEventResult('${event.id}', '${competitor.id}', this.value, ''); renderEventCompetitorsResults(); setTimeout(() => { const inputs = document.querySelectorAll('input[placeholder*=\"Time\"], input[placeholder*=\"Distance\"]'); const idx = Array.from(inputs).indexOf(this); if (idx >= 0 && idx < inputs.length - 1) { inputs[idx + 1].focus(); inputs[idx + 1].select(); } }, 100); }"
+                                    onkeydown="handleTimeInputEnter(event, '${event.id}', '${competitor.id}')"
                                     onchange="saveEventResult('${event.id}', '${competitor.id}', this.value, ''); renderEventCompetitorsResults();"
                                     class="w-40 px-3 py-2 border border-slate-300 rounded-lg text-sm">
                                 <div class="w-24 px-3 py-2 border border-slate-300 rounded-lg text-sm bg-slate-100 font-semibold text-center">
@@ -10083,7 +10119,7 @@ bob@example.com,scorekeeper
                             </button>
                             <input type="${isFieldEvent ? 'number' : 'text'}" placeholder="${isFieldEvent ? 'Distance (m)' : 'Time (mm:ss.ms or mm.ss.ms)'}" 
                                 value="${result && result.time ? result.time : ''}"
-                                onkeydown="if (event.key === 'Enter') { event.preventDefault(); saveEventResult('${currentEventId}', '${competitor.id}', this.value, ''); renderEventCompetitorsResults(); setTimeout(() => { const inputs = document.querySelectorAll('input[placeholder*=\"Time\"], input[placeholder*=\"Distance\"]'); const idx = Array.from(inputs).indexOf(this); if (idx >= 0 && idx < inputs.length - 1) { inputs[idx + 1].focus(); inputs[idx + 1].select(); } }, 100); }"
+                                onkeydown="handleTimeInputEnter(event, '${currentEventId}', '${competitor.id}')"
                                 onchange="saveEventResult('${currentEventId}', '${competitor.id}', this.value, ''); renderEventCompetitorsResults();"
                                 class="w-40 px-3 py-2 border border-slate-300 rounded-lg text-sm">
                             <div class="w-24 px-3 py-2 border border-slate-300 rounded-lg text-sm bg-slate-100 font-semibold text-center">
@@ -10701,7 +10737,7 @@ bob@example.com,scorekeeper
                             <div class="flex items-center gap-2">
                                 <input type="text" placeholder="Time (mm:ss.ms or mm.ss.ms)" 
                                     value="${result ? result.time : ''}"
-                                    onkeydown="if (event.key === 'Enter') { event.preventDefault(); saveResult('${h.id}', '${competitorId}', this.value, ${idx + 1}); setTimeout(() => { const inputs = document.querySelectorAll('input[placeholder*=\"Time\"]'); const idx = Array.from(inputs).indexOf(this); if (idx >= 0 && idx < inputs.length - 1) { inputs[idx + 1].focus(); inputs[idx + 1].select(); } }, 100); }"
+                                    onkeydown="handleTimeInputEnterHeats(event)"
                                     onchange="saveResult('${h.id}', '${competitorId}', this.value, ${idx + 1})"
                                     class="w-32 px-2 py-1 border border-slate-300 rounded text-sm">
                                 <input type="number" placeholder="Position" min="1" max="8"
