@@ -14056,8 +14056,215 @@ bob@example.com,scorekeeper
             }
         };
         
+        // Record validation and repair tools
+        window.devRecords = {
+            // Recheck all results against correct records
+            recheckAllRecords: () => {
+                console.log('%c🔍 RECHECKING ALL RECORDS...', 'background: #f59e0b; color: white; padding: 8px 12px; border-radius: 3px; font-weight: bold; font-size: 14px;');
+                
+                let updateCount = 0;
+                let issuesFound = 0;
+                const issues = [];
+                
+                // Clear all old record flags
+                results.forEach(r => {
+                    if (r.recordBroken) {
+                        r.recordBroken = false;
+                    }
+                });
+                
+                // Iterate through all results and check against records
+                results.forEach(result => {
+                    const competitor = competitors.find(c => c.id === result.competitorId);
+                    const event = events.find(e => e.id === result.eventId);
+                    
+                    if (!competitor || !event || !result.time) return;
+                    
+                    const isFieldEvent = event.category === 'Field';
+                    const timeInSeconds = isFieldEvent ? parseFloat(result.time) : timeToSeconds(result.time);
+                    
+                    // Get competitor's actual gender and age category
+                    const competitorGender = competitor.gender || 'Unknown';
+                    const competitorAge = competitor.ageGroup || getCompetitorAgeCategory(competitor.age, competitor.yearGroup, competitor.yearGroupName) || 'Senior';
+                    
+                    // Find the record for this event/gender/age combination
+                    const recordKey = `${event.id}-${competitorGender}-${competitorAge}`;
+                    let record = records.find(r => r.eventId === event.id && r.gender === competitorGender && r.ageGroup === competitorAge);
+                    
+                    if (record) {
+                        // Check if this result should be marked as recordBroken
+                        const isRecordBroken = isFieldEvent ?
+                            timeInSeconds > record.timeInSeconds :
+                            timeInSeconds < record.timeInSeconds;
+                        
+                        if (isRecordBroken && result.competitorId === record.competitorId) {
+                            result.recordBroken = true;
+                            updateCount++;
+                        } else if (result.recordBroken && !isRecordBroken) {
+                            // This result was marked as record but shouldn't be
+                            result.recordBroken = false;
+                            issuesFound++;
+                            issues.push(`${competitor.name} - ${event.type} (${competitorGender} ${competitorAge}): Incorrectly marked as record`);
+                        }
+                    }
+                });
+                
+                // Save if changes were made
+                if (updateCount > 0 || issuesFound > 0) {
+                    saveData();
+                    console.log('%c✅ RECHECK COMPLETE', 'background: #10b981; color: white; padding: 8px 12px; border-radius: 3px; font-weight: bold; font-size: 12px;');
+                    console.log(`Updates applied: ${updateCount}`);
+                    console.log(`Issues fixed: ${issuesFound}`);
+                    if (issues.length > 0) {
+                        console.log('%cIssues Fixed:', 'color: #d97706; font-weight: bold;');
+                        issues.forEach(issue => console.log(`  • ${issue}`));
+                    }
+                } else {
+                    console.log('%c✅ NO ISSUES FOUND', 'background: #10b981; color: white; padding: 8px 12px; border-radius: 3px; font-weight: bold; font-size: 12px;');
+                    console.log('All records are correctly attributed to competitors.');
+                }
+                
+                console.log('%c📊 SUMMARY', 'color: #0891b2; font-weight: bold; font-size: 12px;');
+                console.log(`Total results checked: ${results.filter(r => r.time).length}`);
+                console.log(`Total records marked: ${results.filter(r => r.recordBroken).length}`);
+            },
+            
+            // Show all current records
+            showRecords: () => {
+                console.log('%c📋 ALL RECORDS', 'background: #0891b2; color: white; padding: 8px 12px; border-radius: 3px; font-weight: bold;');
+                if (records.length === 0) {
+                    console.log('No records set yet.');
+                    return;
+                }
+                
+                // Group by event
+                const byEvent = {};
+                records.forEach(r => {
+                    if (!byEvent[r.eventType]) byEvent[r.eventType] = [];
+                    byEvent[r.eventType].push(r);
+                });
+                
+                Object.keys(byEvent).sort().forEach(eventName => {
+                    console.log(`\n🏃 ${eventName}`);
+                    byEvent[eventName].forEach(r => {
+                        const status = r.recordBroken ? '🎯' : '';
+                        console.log(`  ${status} [${r.gender} / ${r.ageGroup}] ${r.competitorName}: ${r.time} (${r.timeInSeconds}s)`);
+                    });
+                });
+            },
+            
+            // Show results with incorrect record attribution
+            findIssues: () => {
+                console.log('%c🔍 CHECKING FOR RECORD ATTRIBUTION ISSUES...', 'background: #ef4444; color: white; padding: 8px 12px; border-radius: 3px; font-weight: bold;');
+                
+                const issues = [];
+                
+                results.forEach(result => {
+                    if (!result.time) return;
+                    
+                    const competitor = competitors.find(c => c.id === result.competitorId);
+                    const event = events.find(e => e.id === result.eventId);
+                    
+                    if (!competitor || !event) return;
+                    
+                    const isFieldEvent = event.category === 'Field';
+                    const timeInSeconds = isFieldEvent ? parseFloat(result.time) : timeToSeconds(result.time);
+                    
+                    const competitorGender = competitor.gender || 'Unknown';
+                    const competitorAge = competitor.ageGroup || getCompetitorAgeCategory(competitor.age, competitor.yearGroup, competitor.yearGroupName) || 'Senior';
+                    
+                    const record = records.find(r => 
+                        r.eventId === event.id && 
+                        r.gender === competitorGender && 
+                        r.ageGroup === competitorAge
+                    );
+                    
+                    if (record) {
+                        const isRecordBroken = isFieldEvent ?
+                            timeInSeconds > record.timeInSeconds :
+                            timeInSeconds < record.timeInSeconds;
+                        
+                        if (isRecordBroken && result.competitorId === record.competitorId && !result.recordBroken) {
+                            issues.push({
+                                type: 'MISSING_RECORD_FLAG',
+                                competitor: competitor.name,
+                                event: event.type,
+                                gender: competitorGender,
+                                age: competitorAge,
+                                time: result.time,
+                                message: `Should be marked as record (${record.time} → ${result.time})`
+                            });
+                        } else if (result.recordBroken && !isRecordBroken) {
+                            issues.push({
+                                type: 'INCORRECT_RECORD_FLAG',
+                                competitor: competitor.name,
+                                event: event.type,
+                                gender: competitorGender,
+                                age: competitorAge,
+                                time: result.time,
+                                message: `Incorrectly marked as record (record is ${record.time})`
+                            });
+                        } else if (result.recordBroken && isRecordBroken && result.competitorId !== record.competitorId) {
+                            issues.push({
+                                type: 'WRONG_COMPETITOR',
+                                competitor: competitor.name,
+                                event: event.type,
+                                gender: competitorGender,
+                                age: competitorAge,
+                                time: result.time,
+                                message: `Marked as record but not the record holder (${record.competitorName} holds it)`
+                            });
+                        }
+                    }
+                });
+                
+                if (issues.length === 0) {
+                    console.log('%c✅ NO ISSUES FOUND', 'color: #10b981; font-weight: bold;');
+                    return;
+                }
+                
+                console.log(`%c⚠️  Found ${issues.length} issue(s)`, 'color: #ef4444; font-weight: bold;');
+                issues.forEach(issue => {
+                    const icon = issue.type === 'MISSING_RECORD_FLAG' ? '❌' : issue.type === 'INCORRECT_RECORD_FLAG' ? '⚠️' : '🔀';
+                    console.log(`\n${icon} ${issue.competitor} - ${issue.event}`);
+                    console.log(`   ${issue.gender} / ${issue.age}`);
+                    console.log(`   Time: ${issue.time}`);
+                    console.log(`   ${issue.message}`);
+                });
+            },
+            
+            // Show help
+            help: () => {
+                console.log(`
+╔═══════════════════════════════════════════════════════════════╗
+║             🔍 RECORD VERIFICATION UTILITIES 🔍              ║
+╠═══════════════════════════════════════════════════════════════╣
+║                                                               ║
+║  RECHECK ALL RECORDS:                                        ║
+║  • devRecords.recheckAllRecords()                            ║
+║    Validates all results against records and fixes issues    ║
+║                                                               ║
+║  SHOW CURRENT RECORDS:                                       ║
+║  • devRecords.showRecords()                                  ║
+║    Lists all set records grouped by event                    ║
+║                                                               ║
+║  FIND ISSUES:                                                ║
+║  • devRecords.findIssues()                                   ║
+║    Finds record attribution problems without fixing          ║
+║                                                               ║
+║  Example Issues Detected:                                    ║
+║  • Missing record flags (time qualifies but not marked)       ║
+║  • Incorrect flags (marked as record but doesn't qualify)     ║
+║  • Wrong competitor (marked to wrong person)                  ║
+║                                                               ║
+╚═══════════════════════════════════════════════════════════════╝
+                `);
+            }
+        };
+        
         // Print help on app start
         console.log('%c⚡ Dev Login Ready! Press F12 and run: devLogin.help()', 'background: #0891b2; color: white; padding: 5px 10px; border-radius: 3px; font-weight: bold;');
+        console.log('%c🔍 Record Tools Ready! Press F12 and run: devRecords.help()', 'background: #f59e0b; color: white; padding: 5px 10px; border-radius: 3px; font-weight: bold;');
     </script>
 
 </body>
