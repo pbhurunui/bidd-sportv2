@@ -14100,16 +14100,42 @@ bob@example.com,scorekeeper
                 
                 let updateCount = 0;
                 let issuesFound = 0;
+                let removedWrongRecords = 0;
                 const issues = [];
                 
-                // Clear all old record flags
+                // First pass: Remove records stored with wrong age category
+                results.forEach(result => {
+                    if (!result.recordBroken) return;
+                    
+                    const competitor = competitors.find(c => c.id === result.competitorId);
+                    const event = events.find(e => e.id === result.eventId);
+                    
+                    if (!competitor || !event) return;
+                    
+                    const competitorGender = competitor.gender || 'Unknown';
+                    const competitorAge = competitor.ageGroup || getCompetitorAgeCategory(competitor.age, competitor.yearGroup, competitor.yearGroupName) || 'Senior';
+                    
+                    // Find records for this competitor but with WRONG age category
+                    const wrongRecordIndices = records
+                        .map((r, i) => r.eventId === event.id && r.gender === competitorGender && r.competitorId === result.competitorId && r.ageGroup !== competitorAge ? i : -1)
+                        .filter(i => i !== -1);
+                    
+                    // Remove wrong age category records (in reverse order to maintain indices)
+                    wrongRecordIndices.reverse().forEach(idx => {
+                        const removed = records.splice(idx, 1)[0];
+                        issues.push(`Removed record for ${removed.competitorName} from wrong age category ${removed.ageGroup}`);
+                        removedWrongRecords++;
+                    });
+                });
+                
+                // Second pass: Clear all old record flags
                 results.forEach(r => {
                     if (r.recordBroken) {
                         r.recordBroken = false;
                     }
                 });
                 
-                // Iterate through all results and check against records
+                // Third pass: Iterate through all results and check against records
                 results.forEach(result => {
                     const competitor = competitors.find(c => c.id === result.competitorId);
                     const event = events.find(e => e.id === result.eventId);
@@ -14145,13 +14171,13 @@ bob@example.com,scorekeeper
                 });
                 
                 // Save if changes were made
-                if (updateCount > 0 || issuesFound > 0) {
+                if (updateCount > 0 || issuesFound > 0 || removedWrongRecords > 0) {
                     saveData();
                     console.log('%c✅ RECHECK COMPLETE', 'background: #10b981; color: white; padding: 8px 12px; border-radius: 3px; font-weight: bold; font-size: 12px;');
                     console.log(`Updates applied: ${updateCount}`);
-                    console.log(`Issues fixed: ${issuesFound}`);
+                    console.log(`Wrong-age records removed: ${removedWrongRecords}`);
                     if (issues.length > 0) {
-                        console.log('%cIssues Fixed:', 'color: #d97706; font-weight: bold;');
+                        console.log('%cCleaned Up:', 'color: #d97706; font-weight: bold;');
                         issues.forEach(issue => console.log(`  • ${issue}`));
                     }
                 } else {
@@ -14207,6 +14233,32 @@ bob@example.com,scorekeeper
                     
                     const competitorGender = competitor.gender || 'Unknown';
                     const competitorAge = competitor.ageGroup || getCompetitorAgeCategory(competitor.age, competitor.yearGroup, competitor.yearGroupName) || 'Senior';
+                    
+                    // Check all records for this event/gender to find mismatches
+                    if (result.recordBroken) {
+                        // Find if this competitor is marked as record, but for a DIFFERENT age category
+                        const wrongAgeRecords = records.filter(r => 
+                            r.eventId === event.id && 
+                            r.gender === competitorGender &&
+                            r.competitorId === result.competitorId &&
+                            r.ageGroup !== competitorAge
+                        );
+                        
+                        if (wrongAgeRecords.length > 0) {
+                            wrongAgeRecords.forEach(wrongRecord => {
+                                issues.push({
+                                    type: 'WRONG_AGE_CATEGORY',
+                                    competitor: competitor.name,
+                                    event: event.type,
+                                    correctAge: competitorAge,
+                                    wrongAge: wrongRecord.ageGroup,
+                                    gender: competitorGender,
+                                    time: result.time,
+                                    message: `Record attributed to wrong age category! Competitor is ${competitorAge} but record says ${wrongRecord.ageGroup}`
+                                });
+                            });
+                        }
+                    }
                     
                     const record = records.find(r => 
                         r.eventId === event.id && 
@@ -14266,9 +14318,15 @@ bob@example.com,scorekeeper
                 
                 console.log(`%c⚠️  Found ${issues.length} issue(s)`, 'color: #ef4444; font-weight: bold;');
                 issues.forEach(issue => {
-                    const icon = issue.type === 'MISSING_RECORD_FLAG' ? '❌' : issue.type === 'INCORRECT_RECORD_FLAG' ? '⚠️' : '🔀';
+                    let icon = '❌';
+                    let ageDisplay = issue.age ? `${issue.gender} / ${issue.age}` : `${issue.gender} / ${issue.correctAge} (but marked as ${issue.wrongAge})`;
+                    
+                    if (issue.type === 'MISSING_RECORD_FLAG') icon = '❌';
+                    else if (issue.type === 'INCORRECT_RECORD_FLAG') icon = '⚠️';
+                    else if (issue.type === 'WRONG_AGE_CATEGORY') icon = '🔀';
+                    
                     console.log(`\n${icon} ${issue.competitor} - ${issue.event}`);
-                    console.log(`   ${issue.gender} / ${issue.age}`);
+                    console.log(`   ${ageDisplay}`);
                     console.log(`   Time: ${issue.time}`);
                     console.log(`   ${issue.message}`);
                 });
