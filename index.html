@@ -1174,6 +1174,65 @@
             return competitorResultsCache?.get(competitorId) || [];
         }
         
+        // Helper function: Get competitor's current age category
+        function getCompetitorCurrentAge(competitor) {
+            if (!competitor) return 'Senior';
+            return competitor.ageGroup || getCompetitorAgeCategory(competitor.age, competitor.yearGroup, competitor.yearGroupName) || 'Senior';
+        }
+        
+        // Helper function: Clean archived records and get valid record for competitor/event
+        function getRecordForCompetitor(competitorId, eventId, gender) {
+            if (!competitorId || !eventId) return null;
+            
+            const competitor = getCompetitorById(competitorId);
+            if (!competitor) return null;
+            
+            const currentAge = getCompetitorCurrentAge(competitor);
+            
+            // Clean out archived records for this competitor/event
+            records = records.filter(r => {
+                // Keep all unrelated records
+                if (r.competitorId !== competitorId || r.eventId !== eventId) return true;
+                
+                // For this competitor's event, only keep current age category
+                return r.ageGroup === currentAge;
+            });
+            
+            // Find and return the valid record
+            return records.find(r => 
+                r.eventId === eventId && 
+                r.gender === gender && 
+                r.ageGroup === currentAge &&
+                r.competitorId === competitorId
+            );
+        }
+        
+        // Proactive cleanup: Remove all archived age category records from entire records array
+        function cleanAllArchivedRecords() {
+            const beforeCount = records.length;
+            records = records.filter(record => {
+                if (!record.competitorId) return true; // Keep manually-entered meet records
+                
+                const competitor = getCompetitorById(record.competitorId);
+                if (!competitor) return true; // Keep if competitor not found
+                
+                const currentAge = getCompetitorCurrentAge(competitor);
+                if (record.ageGroup !== currentAge) {
+                    console.log(`🗑️ Cleaned archived record: ${record.competitorName} - ${record.eventType} (${record.ageGroup} → current: ${currentAge})`);
+                    return false;
+                }
+                return true;
+            });
+            
+            const removedCount = beforeCount - records.length;
+            if (removedCount > 0) {
+                console.log(`✅ Auto-cleaned ${removedCount} archived age category records`);
+                saveData();
+            }
+            
+            return removedCount;
+        }
+        
         function invalidateLookupMaps() {
             competitorMap = null;
             eventMap = null;
@@ -1341,10 +1400,12 @@
                 } else if (viewName === 'competitors' && typeof renderCompetitors === 'function') {
                     renderCompetitors();
                 } else if (viewName === 'results' && typeof renderResults === 'function') {
+                    cleanAllArchivedRecords(); // Clean before rendering results
                     renderResults();
                 } else if (viewName === 'houses' && typeof renderHouses === 'function') {
                     renderHouses();
                 } else if (viewName === 'records' && typeof renderRecords === 'function') {
+                    cleanAllArchivedRecords(); // Clean before rendering records
                     renderRecords();
                 } else if (viewName === 'statistics' && typeof renderStatistics === 'function') {
                     renderStatistics();
@@ -10566,6 +10627,9 @@ bob@example.com,scorekeeper
             if (!requirePermission('record_results')) return;
             
             try {
+                // Clean archived records before processing any result
+                cleanAllArchivedRecords();
+                
                 // Normalize time format: convert mm.ss.ms to mm:ss.ms
                 if (time) {
                     time = normalizeTimeFormat(time);
@@ -10723,28 +10787,16 @@ bob@example.com,scorekeeper
             const isFieldEvent = event.category === 'Field';
             const timeInSeconds = isFieldEvent ? parseFloat(time) : timeToSeconds(time);
             
-            // Use the competitor's actual gender, not the UI's current gender filter
+            // Use the competitor's actual gender
             const competitorGender = competitor.gender || currentEventGender;
             
-            // Determine the CURRENT age category for this competitor
-            let ageCategory = competitor.ageGroup || getCompetitorAgeCategory(competitor.age, competitor.yearGroup, competitor.yearGroupName) || 'Senior';
+            // Get competitor's CURRENT age category
+            const competitorAge = getCompetitorCurrentAge(competitor);
             
-            // CLEANUP: Remove any archived records for this competitor/event with old age categories
-            records = records.filter(r => {
-                // Keep all records that aren't for this competitor's event
-                if (r.eventId !== eventId || r.competitorId !== competitorId) return true;
-                
-                // For this competitor's event records, keep only if current age category
-                if (r.ageGroup === ageCategory) return true;
-                
-                // Remove archived age category records
-                console.log(`🗑️ Removed archived record for ${r.competitorName} (${r.ageGroup} -> current: ${ageCategory})`);
-                return false;
-            });
+            const recordKey = `${eventId}-${competitorGender}-${competitorAge}`;
             
-            const recordKey = `${eventId}-${competitorGender}-${ageCategory}`;
-            // IMPORTANT: Only find records with CURRENT age category, no archived ones
-            let record = records.find(r => r.key === recordKey && r.ageGroup === ageCategory && r.eventId === eventId);
+            // Use helper to get valid record (cleans archived records automatically)
+            let record = getRecordForCompetitor(competitorId, eventId, competitorGender);
 
             if (!record) {
                 // First time for this event, gender, and age category combination
@@ -10754,7 +10806,7 @@ bob@example.com,scorekeeper
                     eventId,
                     eventType: event.type,
                     gender: competitorGender,
-                    ageGroup: ageCategory,
+                    ageGroup: competitorAge,
                     competitorId,
                     competitorName: competitor.name,
                     time,
@@ -10799,7 +10851,7 @@ bob@example.com,scorekeeper
                         record.category = yearNumber ? `Year ${yearNumber}` : competitor.yearGroupName;
                     }
                     
-                    alert(`🎉 Record Broken! ${competitor.name} broke the record in ${event.type} (${competitorGender} ${ageCategory})\nOld: ${oldRecord.time} | New: ${time}`);
+                    alert(`🎉 Record Broken! ${competitor.name} broke the record in ${event.type} (${competitorGender} ${competitorAge})\nOld: ${oldRecord.time} | New: ${time}`);
                     console.log('Record broken:', record);
                 }
             }
