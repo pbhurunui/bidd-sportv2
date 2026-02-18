@@ -8684,8 +8684,9 @@ bob@example.com,scorekeeper
                                     <div class="bg-slate-50 rounded p-3">
                                         <p class="font-medium text-slate-900">${event.type}</p>
                                         <div class="flex gap-2 mt-2">
-                                            <input type="text" placeholder="Time/Distance" 
+                                            <input type="text" placeholder="Time/Distance (mm:ss.ms or mm.ss.ms)" 
                                                 value="${result?.time || ''}"
+                                                onkeydown="if (event.key === 'Enter') { event.preventDefault(); saveEventResult('${event.id}', '${competitor.id}', this.value, '${result?.position || ''}'); searchCompetitorsForQuickEntry(); setTimeout(() => { const inputs = document.querySelectorAll('input[placeholder*=\"Time\"]'); const idx = Array.from(inputs).indexOf(this); if (idx >= 0 && idx < inputs.length - 1) { inputs[idx + 1].focus(); inputs[idx + 1].select(); } }, 100); }"
                                                 onchange="saveEventResult('${event.id}', '${competitor.id}', this.value, '${result?.position || ''}'); searchCompetitorsForQuickEntry();"
                                                 class="flex-1 px-3 py-2 border border-slate-300 rounded text-sm">
                                             <input type="number" placeholder="Position" min="1" max="100"
@@ -9399,6 +9400,28 @@ bob@example.com,scorekeeper
                 }
             }
             
+            // Handle mm.ss.ms format (e.g., "1.23.45" where first dot separates minutes)
+            if (timeStr.includes('.')) {
+                const parts = timeStr.split('.');
+                if (parts.length === 3) {
+                    // mm.ss.ms format
+                    const minutes = parseFloat(parts[0]);
+                    const seconds = parseFloat(parts[1]);
+                    const milliseconds = parseFloat(parts[2]);
+                    if (!isNaN(minutes) && !isNaN(seconds) && !isNaN(milliseconds)) {
+                        // Reconstruct as mm:ss.ms and convert
+                        return minutes * 60 + seconds + (milliseconds / 1000);
+                    }
+                } else if (parts.length === 2) {
+                    // Could be ss.ms format - check if it has milliseconds
+                    const seconds = parseFloat(parts[0]);
+                    const ms = parseFloat(parts[1]);
+                    if (!isNaN(seconds) && !isNaN(ms)) {
+                        return seconds + (ms / 1000);
+                    }
+                }
+            }
+            
             return Infinity; // If can't parse, put at end
         }
 
@@ -9421,6 +9444,30 @@ bob@example.com,scorekeeper
             if (gender === 'Male' || gender === 'Boys' || gender === 'M') return 'male';
             if (gender === 'Female' || gender === 'Girls' || gender === 'F') return 'female';
             return gender?.toLowerCase() || '';
+        }
+
+        function handleTimeInputKeydown(e, currentEventId, currentCompetitorId) {
+            // If Enter is pressed, save the result and move to next competitor
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                
+                // Save the current result
+                saveEventResult(currentEventId, currentCompetitorId, e.target.value, '');
+                renderEventCompetitorsResults();
+                
+                // Focus on next time input after re-render completes
+                setTimeout(() => {
+                    const timeInputs = document.querySelectorAll('input[placeholder*="Time"], input[placeholder*="Distance"]');
+                    const currentIndex = Array.from(timeInputs).findIndex(input => 
+                        input.value === e.target.value || input === document.activeElement
+                    );
+                    
+                    if (currentIndex >= 0 && currentIndex < timeInputs.length - 1) {
+                        timeInputs[currentIndex + 1].focus();
+                        timeInputs[currentIndex + 1].select();
+                    }
+                }, 100);
+            }
         }
 
         function switchOpenEventGender(gender) {
@@ -9596,8 +9643,9 @@ bob@example.com,scorekeeper
                                 <button onclick="toggleDQF('${event.id}', '${competitor.id}'); renderEventCompetitorsResults();" class="px-3 py-2 ${result?.dqf ? 'bg-orange-600 text-white' : 'bg-orange-100 text-orange-700'} hover:bg-orange-700 rounded-lg font-semibold text-sm">
                                     ${result?.dqf ? '✓ DQF' : 'DQF'}
                                 </button>
-                                <input type="${isFieldEvent ? 'number' : 'text'}" placeholder="${isFieldEvent ? 'Distance (m)' : 'Time (mm:ss.ms)'}" 
+                                <input type="${isFieldEvent ? 'number' : 'text'}" placeholder="${isFieldEvent ? 'Distance (m)' : 'Time (mm:ss.ms or mm.ss.ms)'}" 
                                     value="${result && result.time ? result.time : ''}"
+                                    onkeydown="if (event.key === 'Enter') { event.preventDefault(); saveEventResult('${event.id}', '${competitor.id}', this.value, ''); renderEventCompetitorsResults(); setTimeout(() => { const inputs = document.querySelectorAll('input[placeholder*=\"Time\"], input[placeholder*=\"Distance\"]'); const idx = Array.from(inputs).indexOf(this); if (idx >= 0 && idx < inputs.length - 1) { inputs[idx + 1].focus(); inputs[idx + 1].select(); } }, 100); }"
                                     onchange="saveEventResult('${event.id}', '${competitor.id}', this.value, ''); renderEventCompetitorsResults();"
                                     class="w-40 px-3 py-2 border border-slate-300 rounded-lg text-sm">
                                 <div class="w-24 px-3 py-2 border border-slate-300 rounded-lg text-sm bg-slate-100 font-semibold text-center">
@@ -10033,8 +10081,9 @@ bob@example.com,scorekeeper
                             <button onclick="toggleDQF('${currentEventId}', '${competitor.id}'); renderEventCompetitorsResults();" class="px-3 py-2 ${result?.dqf ? 'bg-orange-600 text-white' : 'bg-orange-100 text-orange-700'} hover:bg-orange-700 rounded-lg font-semibold text-sm">
                                 ${result?.dqf ? '✓ DQF' : 'DQF'}
                             </button>
-                            <input type="${isFieldEvent ? 'number' : 'text'}" placeholder="${isFieldEvent ? 'Distance (m)' : 'Time (mm:ss.ms)'}" 
+                            <input type="${isFieldEvent ? 'number' : 'text'}" placeholder="${isFieldEvent ? 'Distance (m)' : 'Time (mm:ss.ms or mm.ss.ms)'}" 
                                 value="${result && result.time ? result.time : ''}"
+                                onkeydown="if (event.key === 'Enter') { event.preventDefault(); saveEventResult('${currentEventId}', '${competitor.id}', this.value, ''); renderEventCompetitorsResults(); setTimeout(() => { const inputs = document.querySelectorAll('input[placeholder*=\"Time\"], input[placeholder*=\"Distance\"]'); const idx = Array.from(inputs).indexOf(this); if (idx >= 0 && idx < inputs.length - 1) { inputs[idx + 1].focus(); inputs[idx + 1].select(); } }, 100); }"
                                 onchange="saveEventResult('${currentEventId}', '${competitor.id}', this.value, ''); renderEventCompetitorsResults();"
                                 class="w-40 px-3 py-2 border border-slate-300 rounded-lg text-sm">
                             <div class="w-24 px-3 py-2 border border-slate-300 rounded-lg text-sm bg-slate-100 font-semibold text-center">
@@ -10647,8 +10696,9 @@ bob@example.com,scorekeeper
                                 ${house ? `<span class="px-2 py-1 rounded text-xs font-semibold bg-${house.color}-500 text-white">${house.name}</span>` : ''}
                             </div>
                             <div class="flex items-center gap-2">
-                                <input type="text" placeholder="Time (mm:ss.ms)" 
+                                <input type="text" placeholder="Time (mm:ss.ms or mm.ss.ms)" 
                                     value="${result ? result.time : ''}"
+                                    onkeydown="if (event.key === 'Enter') { event.preventDefault(); saveResult('${h.id}', '${competitorId}', this.value, ${idx + 1}); setTimeout(() => { const inputs = document.querySelectorAll('input[placeholder*=\"Time\"]'); const idx = Array.from(inputs).indexOf(this); if (idx >= 0 && idx < inputs.length - 1) { inputs[idx + 1].focus(); inputs[idx + 1].select(); } }, 100); }"
                                     onchange="saveResult('${h.id}', '${competitorId}', this.value, ${idx + 1})"
                                     class="w-32 px-2 py-1 border border-slate-300 rounded text-sm">
                                 <input type="number" placeholder="Position" min="1" max="8"
