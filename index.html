@@ -8685,6 +8685,8 @@ bob@example.com,scorekeeper
                                         <p class="font-medium text-slate-900">${event.type}</p>
                                         <div class="flex gap-2 mt-2">
                                             <input type="text" placeholder="Time/Distance (mm:ss.ms or mm.ss.ms)" 
+                                                data-event-id="${event.id}"
+                                                data-competitor-id="${competitor.id}"
                                                 value="${result?.time || ''}"
                                                 onkeydown="handleTimeInputEnter(event, '${event.id}', '${competitor.id}')"
                                                 onchange="saveEventResult('${event.id}', '${competitor.id}', this.value, '${result?.position || ''}'); searchCompetitorsForQuickEntry();"
@@ -9489,20 +9491,36 @@ bob@example.com,scorekeeper
             
             // Move to next competitor's input
             setTimeout(() => {
-                const timeInputs = Array.from(document.querySelectorAll('input[placeholder*="Time"], input[placeholder*="Distance"]'));
+                // Find all time inputs with data attributes
+                const timeInputs = Array.from(document.querySelectorAll('input[data-event-id][data-competitor-id]'));
                 if (timeInputs.length === 0) return;
                 
-                // Find current input position
-                const currentIndex = timeInputs.indexOf(e.target);
+                // Find the next competitor's input after the current one
+                const nextInput = timeInputs.find(input => {
+                    const inputEventId = input.dataset.eventId;
+                    const inputCompetitorId = input.dataset.competitorId;
+                    
+                    // Compare by competitor IDs to find the next one in sequence
+                    // This assumes inputs are in order in the DOM
+                    return inputEventId === eventId;
+                });
                 
-                // Move to next input (wrapping if at end)
-                if (currentIndex >= 0 && currentIndex < timeInputs.length - 1) {
-                    timeInputs[currentIndex + 1].focus();
-                    timeInputs[currentIndex + 1].select();
-                } else if (currentIndex === timeInputs.length - 1) {
-                    // At the last input, wrap to first
-                    timeInputs[0].focus();
-                    timeInputs[0].select();
+                // Get all inputs for this event
+                const eventInputs = timeInputs.filter(input => input.dataset.eventId === eventId);
+                if (eventInputs.length === 0) return;
+                
+                // Find current position by competitor ID
+                const currentIndex = eventInputs.findIndex(input => input.dataset.competitorId === competitorId);
+                
+                // Move to next
+                if (currentIndex >= 0 && currentIndex < eventInputs.length - 1) {
+                    const nextInput = eventInputs[currentIndex + 1];
+                    nextInput.focus();
+                    nextInput.select();
+                } else if (currentIndex === eventInputs.length - 1) {
+                    // At last competitor, wrap to first
+                    eventInputs[0].focus();
+                    eventInputs[0].select();
                 }
             }, 100);
         }
@@ -9517,13 +9535,22 @@ bob@example.com,scorekeeper
             timeValue = normalizeTimeFormat(timeValue);
             e.target.value = timeValue;
             
-            // Move to next input
+            // Move to next input  
             setTimeout(() => {
                 const timeInputs = Array.from(document.querySelectorAll('input[placeholder*="Time"]'));
                 if (timeInputs.length === 0) return;
                 
-                // Find current input position
-                const currentIndex = timeInputs.indexOf(e.target);
+                // Find current input position by matching data attributes if available
+                let currentIndex = -1;
+                const currentCompetitorId = e.target.dataset?.competitorId;
+                
+                if (currentCompetitorId) {
+                    // Use data attributes to find position
+                    currentIndex = timeInputs.findIndex(input => input.dataset?.competitorId === currentCompetitorId);
+                } else {
+                    // Fallback to simple sequential traversal
+                    currentIndex = timeInputs.indexOf(e.target);
+                }
                 
                 // Move to next input (wrapping if at end)
                 if (currentIndex >= 0 && currentIndex < timeInputs.length - 1) {
@@ -9711,6 +9738,8 @@ bob@example.com,scorekeeper
                                     ${result?.dqf ? '✓ DQF' : 'DQF'}
                                 </button>
                                 <input type="${isFieldEvent ? 'number' : 'text'}" placeholder="${isFieldEvent ? 'Distance (m)' : 'Time (mm:ss.ms or mm.ss.ms)'}" 
+                                    data-event-id="${event.id}"
+                                    data-competitor-id="${competitor.id}"
                                     value="${result && result.time ? result.time : ''}"
                                     onkeydown="handleTimeInputEnter(event, '${event.id}', '${competitor.id}')"
                                     onchange="saveEventResult('${event.id}', '${competitor.id}', this.value, ''); renderEventCompetitorsResults();"
@@ -10149,6 +10178,8 @@ bob@example.com,scorekeeper
                                 ${result?.dqf ? '✓ DQF' : 'DQF'}
                             </button>
                             <input type="${isFieldEvent ? 'number' : 'text'}" placeholder="${isFieldEvent ? 'Distance (m)' : 'Time (mm:ss.ms or mm.ss.ms)'}" 
+                                data-event-id="${currentEventId}"
+                                data-competitor-id="${competitor.id}"
                                 value="${result && result.time ? result.time : ''}"
                                 onkeydown="handleTimeInputEnter(event, '${currentEventId}', '${competitor.id}')"
                                 onchange="saveEventResult('${currentEventId}', '${competitor.id}', this.value, ''); renderEventCompetitorsResults();"
@@ -10772,6 +10803,8 @@ bob@example.com,scorekeeper
                             </div>
                             <div class="flex items-center gap-2">
                                 <input type="text" placeholder="Time (mm:ss.ms or mm.ss.ms)" 
+                                    data-heat-id="${h.id}"
+                                    data-competitor-id="${competitorId}"
                                     value="${result ? result.time : ''}"
                                     onkeydown="handleTimeInputEnterHeats(event)"
                                     onchange="saveResult('${h.id}', '${competitorId}', this.value, ${idx + 1})"
