@@ -10718,11 +10718,25 @@ bob@example.com,scorekeeper
             // Use the competitor's actual gender, not the UI's current gender filter
             const competitorGender = competitor.gender || currentEventGender;
             
-            // Determine the age category for this competitor
+            // Determine the CURRENT age category for this competitor
             let ageCategory = competitor.ageGroup || getCompetitorAgeCategory(competitor.age, competitor.yearGroup, competitor.yearGroupName) || 'Senior';
             
+            // CLEANUP: Remove any archived records for this competitor/event with old age categories
+            records = records.filter(r => {
+                // Keep all records that aren't for this competitor's event
+                if (r.eventId !== eventId || r.competitorId !== competitorId) return true;
+                
+                // For this competitor's event records, keep only if current age category
+                if (r.ageGroup === ageCategory) return true;
+                
+                // Remove archived age category records
+                console.log(`🗑️ Removed archived record for ${r.competitorName} (${r.ageGroup} -> current: ${ageCategory})`);
+                return false;
+            });
+            
             const recordKey = `${eventId}-${competitorGender}-${ageCategory}`;
-            let record = records.find(r => r.key === recordKey);
+            // IMPORTANT: Only find records with CURRENT age category, no archived ones
+            let record = records.find(r => r.key === recordKey && r.ageGroup === ageCategory && r.eventId === eventId);
 
             if (!record) {
                 // First time for this event, gender, and age category combination
