@@ -9446,12 +9446,30 @@ bob@example.com,scorekeeper
             return gender?.toLowerCase() || '';
         }
 
+        function normalizeTimeFormat(timeValue) {
+            if (!timeValue) return timeValue;
+            // Convert mm.ss.ms format to mm:ss.ms format
+            // Count the number of dots/colons
+            const dotCount = (timeValue.match(/\./g) || []).length;
+            const colonCount = (timeValue.match(/:/g) || []).length;
+            
+            // If it has 3 dots (mm.ss.ms format), replace the first dot with colon
+            if (dotCount === 2 && colonCount === 0) {
+                return timeValue.replace('.', ':');
+            }
+            return timeValue;
+        }
+
         function handleTimeInputKeydown(e, currentEventId, currentCompetitorId) {
         function handleTimeInputEnter(e, eventId, competitorId, isOpenEvent = false) {
             if (e.key !== 'Enter') return;
             e.preventDefault();
             
-            const timeValue = e.target.value;
+            let timeValue = e.target.value;
+            
+            // Normalize time format: mm.ss.ms → mm:ss.ms
+            timeValue = normalizeTimeFormat(timeValue);
+            e.target.value = timeValue;
             
             // Save the result
             saveEventResult(eventId, competitorId, timeValue, '');
@@ -9471,6 +9489,12 @@ bob@example.com,scorekeeper
         function handleTimeInputEnterHeats(e) {
             if (e.key !== 'Enter') return;
             e.preventDefault();
+            
+            let timeValue = e.target.value;
+            
+            // Normalize time format: mm.ss.ms → mm:ss.ms
+            timeValue = normalizeTimeFormat(timeValue);
+            e.target.value = timeValue;
             
             // Move to next input
             setTimeout(() => {
@@ -10401,6 +10425,11 @@ bob@example.com,scorekeeper
             if (!requirePermission('record_results')) return;
             
             try {
+                // Normalize time format: convert mm.ss.ms to mm:ss.ms
+                if (time) {
+                    time = normalizeTimeFormat(time);
+                }
+                
                 console.log('saveEventResult called:', {eventId, competitorId, time, position});
                 
                 // VALIDATION: Check if competitor has entry in this event
