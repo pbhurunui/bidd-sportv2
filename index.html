@@ -1270,21 +1270,46 @@
             // Use the first authorized user's email or a demo email
             const firstUser = authorizedUsers && authorizedUsers.length > 0 ? authorizedUsers[0].email : 'pb@hurunuicollege.school.nz';
             const devPassword = localStorage.getItem('devPassword');
+            const emailInput = document.getElementById('signInEmail');
+            const passwordInput = document.getElementById('signInPassword');
             
             if (!devPassword) {
-                console.warn('❌ No dev password set!');
-                console.log('%c📝 SETUP REQUIRED:', 'color: #ff6b6b; font-weight: bold;');
-                console.log('1. Enter your actual password in the login form');
-                console.log('2. Then save it for quick dev login by running:');
-                console.log('   devLogin.setPassword("your-actual-password")');
-                console.log('3. Next time, press Ctrl+Shift+L to login instantly!');
-                alert('❌ Dev password not set!\n\nOpen browser console and run:\ndevLogin.setPassword("your-actual-password")\n\nThen try again.');
-                return;
+                // No password saved yet
+                const manualEmail = emailInput?.value?.trim();
+                const manualPassword = passwordInput?.value?.trim();
+                
+                if (manualEmail && manualPassword) {
+                    // User has entered credentials manually - auto-save for quick login next time
+                    console.log('💾 Saving credentials for quick dev login...');
+                    await attemptSignIn();
+                    // After successful login, we'll save via the devLogin object via console
+                    setTimeout(() => {
+                        console.log('%c✨ Login successful!', 'color: #2ecc71; font-weight: bold;');
+                        console.log('To enable quick login with Ctrl+Shift+L, run:');
+                        console.log(`devLogin.setPassword("${manualPassword.substring(0, 3)}...")`);  // Show partial password
+                    }, 500);
+                    return;
+                } else {
+                    // Prompt user to enter credentials
+                    console.log('%c⚙️ QUICK DEV LOGIN SETUP:', 'color: #3b82f6; font-weight: bold;');
+                    console.log('1. Enter your email and password in the form above');
+                    console.log('2. Click "Quick Dev Login" button to sign in');
+                    console.log('3. After login, run in console: devLogin.setPassword("your-password")');
+                    console.log('4. Next time, press Ctrl+Shift+L to login instantly!');
+                    
+                    // Focus on password field if email is already filled
+                    if (emailInput?.value) {
+                        passwordInput?.focus();
+                    } else {
+                        emailInput?.focus();
+                    }
+                    return;
+                }
             }
             
-            // Auto-fill the form
-            document.getElementById('signInEmail').value = firstUser;
-            document.getElementById('signInPassword').value = devPassword;
+            // Auto-fill the form with saved password and login
+            if (emailInput) emailInput.value = firstUser;
+            if (passwordInput) passwordInput.value = devPassword;
             
             console.log('🚀 [Dev Login] Signing in as:', firstUser);
             
