@@ -10517,10 +10517,13 @@ bob@example.com,scorekeeper
             const isFieldEvent = event.category === 'Field';
             const timeInSeconds = isFieldEvent ? parseFloat(time) : timeToSeconds(time);
             
+            // Use the competitor's actual gender, not the UI's current gender filter
+            const competitorGender = competitor.gender || currentEventGender;
+            
             // Determine the age category for this competitor
             let ageCategory = competitor.ageGroup || getCompetitorAgeCategory(competitor.age, competitor.yearGroup, competitor.yearGroupName) || 'Senior';
             
-            const recordKey = `${eventId}-${currentEventGender}-${ageCategory}`;
+            const recordKey = `${eventId}-${competitorGender}-${ageCategory}`;
             let record = records.find(r => r.key === recordKey);
 
             if (!record) {
@@ -10530,7 +10533,7 @@ bob@example.com,scorekeeper
                     key: recordKey,
                     eventId,
                     eventType: event.type,
-                    gender: currentEventGender,
+                    gender: competitorGender,
                     ageGroup: ageCategory,
                     competitorId,
                     competitorName: competitor.name,
@@ -10576,7 +10579,7 @@ bob@example.com,scorekeeper
                         record.category = yearNumber ? `Year ${yearNumber}` : competitor.yearGroupName;
                     }
                     
-                    alert(`🎉 Record Broken! ${competitor.name} broke the record in ${event.type} (${currentEventGender} ${ageCategory})\nOld: ${oldRecord.time} | New: ${time}`);
+                    alert(`🎉 Record Broken! ${competitor.name} broke the record in ${event.type} (${competitorGender} ${ageCategory})\nOld: ${oldRecord.time} | New: ${time}`);
                     console.log('Record broken:', record);
                 }
             }
