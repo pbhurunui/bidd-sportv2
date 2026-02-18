@@ -14273,6 +14273,7 @@ bob@example.com,scorekeeper
                 let issuesFound = 0;
                 let removedWrongRecords = 0;
                 let removedWrongGenderRecords = 0;
+                let removedArchivedAgeRecords = 0;
                 let recordsCreated = 0;
                 const issues = [];
                 
@@ -14289,7 +14290,7 @@ bob@example.com,scorekeeper
                 });
                 
                 // Remove wrong gender records (filter them out)
-                const beforeLen = records.length;
+                let beforeLen = records.length;
                 records = records.filter(record => {
                     const competitor = competitors.find(c => c.id === record.competitorId);
                     if (!competitor) return true; // Keep if competitor not found
@@ -14298,7 +14299,26 @@ bob@example.com,scorekeeper
                 });
                 removedWrongRecords += beforeLen - records.length;
                 
-                // Second pass: Remove records stored with wrong age category
+                // Second pass: Remove records stored for archived/old age categories
+                // Only keep records for the competitor's CURRENT age category
+                beforeLen = records.length;
+                records = records.filter(record => {
+                    const competitor = competitors.find(c => c.id === record.competitorId);
+                    if (!competitor) return true; // Keep if competitor not found
+                    
+                    const currentAge = competitor.ageGroup || getCompetitorAgeCategory(competitor.age, competitor.yearGroup, competitor.yearGroupName) || 'Senior';
+                    
+                    // Only keep records that match current age category
+                    if (record.ageGroup !== currentAge) {
+                        issues.push(`🗑️ Removed archived record for ${record.competitorName} - old category: ${record.ageGroup}, current: ${currentAge}`);
+                        return false; // Remove this record
+                    }
+                    return true; // Keep this record
+                });
+                removedArchivedAgeRecords = beforeLen - records.length;
+                removedWrongRecords += removedArchivedAgeRecords;
+                
+                // Third pass: Remove records stored with wrong age category (safety check)
                 results.forEach(result => {
                     if (!result.recordBroken) return;
                     
@@ -14310,7 +14330,7 @@ bob@example.com,scorekeeper
                     const competitorGender = competitor.gender || 'Unknown';
                     const competitorAge = competitor.ageGroup || getCompetitorAgeCategory(competitor.age, competitor.yearGroup, competitor.yearGroupName) || 'Senior';
                     
-                    // Find records for this competitor but with WRONG age category
+                    // Find records for this competitor but with WRONG age category (should be none after pass 2)
                     const wrongRecordIndices = records
                         .map((r, i) => r.eventId === event.id && r.gender === competitorGender && r.competitorId === result.competitorId && r.ageGroup !== competitorAge ? i : -1)
                         .filter(i => i !== -1);
@@ -14323,14 +14343,14 @@ bob@example.com,scorekeeper
                     });
                 });
                 
-                // Third pass: Clear all old record flags
+                // Fourth pass: Clear all old record flags
                 results.forEach(r => {
                     if (r.recordBroken) {
                         r.recordBroken = false;
                     }
                 });
                 
-                // Fourth pass: Iterate through all results and check against records
+                // Fifth pass: Iterate through all results and check against CURRENT age category records only
                 results.forEach(result => {
                     const competitor = competitors.find(c => c.id === result.competitorId);
                     const event = events.find(e => e.id === result.eventId);
@@ -14340,11 +14360,11 @@ bob@example.com,scorekeeper
                     const isFieldEvent = event.category === 'Field';
                     const timeInSeconds = isFieldEvent ? parseFloat(result.time) : timeToSeconds(result.time);
                     
-                    // Get competitor's actual gender and age category
+                    // Get competitor's CURRENT age category (not archived)
                     const competitorGender = competitor.gender || 'Unknown';
                     const competitorAge = competitor.ageGroup || getCompetitorAgeCategory(competitor.age, competitor.yearGroup, competitor.yearGroupName) || 'Senior';
                     
-                    // Find the record for this event/gender/age combination
+                    // Find the record for this event/gender/CURRENT age combination ONLY
                     let record = records.find(r => r.eventId === event.id && r.gender === competitorGender && r.ageGroup === competitorAge);
                     
                     if (record) {
@@ -14359,8 +14379,8 @@ bob@example.com,scorekeeper
                             updateCount++;
                         }
                     } else {
-                        // No record exists yet - this result becomes the first record
-                        // CREATE the missing record entry
+                        // No record exists yet for current age category - this result becomes the first record
+                        // CREATE the missing record entry with CURRENT age category
                         const newRecord = {
                             id: `record-${Date.now()}-${Math.random()}`,
                             eventId: event.id,
@@ -14377,25 +14397,26 @@ bob@example.com,scorekeeper
                         result.recordBroken = true;
                         updateCount++;
                         recordsCreated++;
-                        issues.push(`✅ Created missing record for ${newRecord.competitorName} - ${newRecord.eventType} (${competitorGender}/${competitorAge})`);
+                        issues.push(`✅ Created new record for ${newRecord.competitorName} - ${newRecord.eventType} (${competitorGender}/${competitorAge})`);
                     }
                 });
                 
                 // Save if changes were made
-                if (updateCount > 0 || issuesFound > 0 || removedWrongRecords > 0 || recordsCreated > 0 || removedWrongGenderRecords > 0) {
+                if (updateCount > 0 || issuesFound > 0 || removedWrongRecords > 0 || recordsCreated > 0 || removedWrongGenderRecords > 0 || removedArchivedAgeRecords > 0) {
                     saveData();
                     console.log('%c✅ RECHECK COMPLETE', 'background: #10b981; color: white; padding: 8px 12px; border-radius: 3px; font-weight: bold; font-size: 12px;');
                     console.log(`Updates applied: ${updateCount}`);
                     console.log(`Records created: ${recordsCreated}`);
                     console.log(`Wrong-gender records removed: ${removedWrongGenderRecords}`);
-                    console.log(`Wrong-age records removed: ${removedWrongRecords}`);
+                    console.log(`Archived age category records removed: ${removedArchivedAgeRecords}`);
+                    console.log(`Total wrong records removed: ${removedWrongRecords}`);
                     if (issues.length > 0) {
                         console.log('%cActions Taken:', 'color: #d97706; font-weight: bold;');
                         issues.forEach(issue => console.log(`  • ${issue}`));
                     }
                 } else {
                     console.log('%c✅ NO ISSUES FOUND', 'background: #10b981; color: white; padding: 8px 12px; border-radius: 3px; font-weight: bold; font-size: 12px;');
-                    console.log('All records are correctly attributed to competitors.');
+                    console.log('All records are correctly attributed to current age categories.');
                 }
                 
                 console.log('%c📊 SUMMARY', 'color: #0891b2; font-weight: bold; font-size: 12px;');
@@ -14449,6 +14470,26 @@ bob@example.com,scorekeeper
                             age: record.ageGroup,
                             time: record.time,
                             message: `Record attributed to wrong gender! Competitor is ${competitorGender} but record says ${record.gender}`
+                        });
+                    }
+                });
+                
+                // Second: Check all records for archived age categories
+                records.forEach(record => {
+                    const competitor = competitors.find(c => c.id === record.competitorId);
+                    if (!competitor) return;
+                    
+                    const currentAge = competitor.ageGroup || getCompetitorAgeCategory(competitor.age, competitor.yearGroup, competitor.yearGroupName) || 'Senior';
+                    if (record.ageGroup !== currentAge) {
+                        issues.push({
+                            type: 'ARCHIVED_AGE_CATEGORY',
+                            competitor: competitor.name,
+                            event: record.eventType,
+                            currentAge: currentAge,
+                            archivedAge: record.ageGroup,
+                            gender: record.gender,
+                            time: record.time,
+                            message: `Record is for archived age category! Competitor is now ${currentAge} but record is for ${record.ageGroup}`
                         });
                     }
                 });
@@ -14559,13 +14600,18 @@ bob@example.com,scorekeeper
                     else if (issue.type === 'INCORRECT_RECORD_FLAG') icon = '⚠️';
                     else if (issue.type === 'WRONG_AGE_CATEGORY') icon = '🔀';
                     else if (issue.type === 'WRONG_GENDER') icon = '⚧';
+                    else if (issue.type === 'ARCHIVED_AGE_CATEGORY') icon = '📦';
                     
                     if (issue.age) {
                         ageDisplay = issue.type === 'WRONG_GENDER' 
                             ? `${issue.correctGender} / ${issue.age}` 
+                            : issue.type === 'ARCHIVED_AGE_CATEGORY'
+                            ? `Current: ${issue.currentAge}, Archived: ${issue.archivedAge}`
                             : `${issue.gender} / ${issue.age}`;
                     } else if (issue.correctAge) {
                         ageDisplay = `${issue.gender} / ${issue.correctAge} (but marked as ${issue.wrongAge})`;
+                    } else if (issue.currentAge) {
+                        ageDisplay = `Competitor's current age: ${issue.currentAge}`;
                     }
                     
                     console.log(`\n${icon} ${issue.competitor} - ${issue.event}`);
@@ -14585,6 +14631,9 @@ bob@example.com,scorekeeper
 ║  RECHECK ALL RECORDS:                                        ║
 ║  • devRecords.recheckAllRecords()                            ║
 ║    Validates all results against records and fixes issues    ║
+║    - Removes records with wrong gender                        ║
+║    - Removes records from archived age categories             ║
+║    - Creates new records for current age category only        ║
 ║                                                               ║
 ║  SHOW CURRENT RECORDS:                                       ║
 ║  • devRecords.showRecords()                                  ║
@@ -14596,6 +14645,7 @@ bob@example.com,scorekeeper
 ║                                                               ║
 ║  Example Issues Detected:                                    ║
 ║  • Wrong gender (marked to wrong gender category)             ║
+║  • Archived age category (records from old age groups)         ║
 ║  • Wrong age category (marked to wrong age group)             ║
 ║  • Missing record flags (time qualifies but not marked)       ║
 ║  • Incorrect flags (marked as record but doesn't qualify)     ║
