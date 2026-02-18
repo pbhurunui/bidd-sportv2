@@ -1,0 +1,54 @@
+{
+  "name": "Bidd-Sport Tournament Manager v2.0",
+  "short_name": "BIDD-Sport",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#ecfeff",
+  "theme_color": "#0891b2",
+  "description": "Bidd-Sport Tournament Manager - Manage tournaments, events, and competitors across multiple sports",
+  "icons": [
+    {
+      "src": "bidd-logo.png",
+      "sizes": "any",
+      "type": "image/png"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "New Tournament",
+      "short_name": "Tournament",
+      "description": "Create a new tournament",
+      "url": "./?action=new-tournament",
+      "icons": [
+        {
+          "src": "bidd-logo.png",
+          "sizes": "any"
+        }
+      ]
+    },
+    {
+      "name": "View Results",
+      "short_name": "Results",
+      "description": "Check tournament results",
+      "url": "./?action=view-results",
+      "icons": [
+        {
+          "src": "bidd-logo.png",
+          "sizes": "any"
+        }
+      ]
+    },
+    {
+      "name": "Sync Data",
+      "short_name": "Sync",
+      "description": "Sync data to cloud",
+      "url": "./?action=sync-data",
+      "icons": [
+        {
+          "src": "bidd-logo.png",
+          "sizes": "any"
+        }
+      ]
+    }
+  ]
+}

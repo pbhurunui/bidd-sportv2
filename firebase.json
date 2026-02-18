@@ -1,0 +1,35 @@
+{
+  "firestore": {
+    "rules": "firestore.rules"
+  },
+  "database": {
+    "rules": "database.rules.json"
+  },
+  "hosting": {
+    "public": ".",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**",
+      "backups/**",
+      "Bidd-Sports/**",
+      "functions/**"
+    ]
+  },
+  "emulators": {
+    "firestore": {
+      "port": 5500
+    },
+    "database": {
+      "port": 8000
+    },
+    "hosting": {
+      "port": 9000
+    },
+    "ui": {
+      "enabled": true,
+      "port": 9500
+    },
+    "singleProjectMode": true
+  }
+}

@@ -1,0 +1,170 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Read user's permissions from organizerPermissions collection
+    function getUserPermissions() {
+      let userEmail = request.auth.token.email;
+      let permDoc = get(/databases/$(database)/documents/organizerPermissions/$(userEmail));
+      return permDoc.data.permissions != null ? permDoc.data.permissions : [];
+    }
+    
+    // Get user's role from organizerPermissions collection
+    function getUserRole() {
+      let userEmail = request.auth.token.email;
+      let permDoc = get(/databases/$(database)/documents/organizerPermissions/$(userEmail));
+      return permDoc.data.roleTemplate != null ? permDoc.data.roleTemplate : 'viewer';
+    }
+    
+    // Helper function to check if user has specific permission
+    function hasPermission(permission) {
+      return request.auth != null && 
+             permission in getUserPermissions();
+    }
+    
+    // Helper function to check user's role
+    function hasRole(role) {
+      return request.auth != null && 
+             getUserRole() == role;
+    }
+    
+    // Helper function to check if user is admin
+    function isAdmin() {
+      return hasRole('admin');
+    }
+
+    // Organizer Permissions Collection
+    // Stores role and permissions for each organizer by email
+    match /organizerPermissions/{email} {
+      // Anyone can read their own permission document
+      allow read: if request.auth != null && request.auth.token.email == email;
+      
+      // Allow creating own permissions document (bootstrap for first organizer)
+      allow create: if request.auth != null && 
+                       request.auth.token.email == email &&
+                       !exists(/databases/$(database)/documents/organizerPermissions/$(email));
+      
+      // Allow updating own or others' permissions only if user has manage_users permission
+      allow update: if request.auth != null && (
+                       (request.auth.token.email == email) ||  // Users can update their own
+                       (hasPermission('manage_users') || isAdmin())  // Admins/manage_users can update others
+                     );
+      
+      // Only admins can delete permission documents
+      allow delete: if request.auth != null && 
+                       (isAdmin() || hasPermission('manage_users'));
+    }
+
+    // Allow authenticated users to read/write their own user document
+    match /users/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Tournament access control
+    match /tournaments/{document=**} {
+      allow read: if request.auth != null;
+      allow create: if hasPermission('manage_tournaments');
+      allow update: if hasPermission('manage_tournaments');
+      allow delete: if hasPermission('manage_tournaments');
+    }
+    
+    // Events access control
+    match /events/{document=**} {
+      allow read: if request.auth != null;
+      allow create: if hasPermission('manage_events');
+      allow update: if hasPermission('edit_event_details') || hasPermission('manage_events');
+      allow delete: if hasPermission('manage_events');
+    }
+    
+    // Results access control
+    match /results/{document=**} {
+      allow read: if request.auth != null;
+      allow create: if hasPermission('record_results');
+      allow update: if hasPermission('edit_results') || hasPermission('record_results');
+      allow delete: if hasPermission('edit_results');
+    }
+    
+    // Competitors access control
+    match /competitors/{document=**} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
+    }
+    
+    // Organizers (User Management) access control
+    match /organizers/{document=**} {
+      allow read: if hasPermission('manage_users');
+      allow create: if hasPermission('manage_users');
+      allow update: if hasPermission('assign_roles') || hasPermission('manage_users');
+      allow delete: if hasPermission('manage_users');
+    }
+    
+    // Round Robin Tournament access control
+    match /roundRobinTournaments/{document=**} {
+      allow read: if request.auth != null;
+      allow create: if hasPermission('manage_tournaments');
+      allow update: if hasPermission('manage_tournaments');
+      allow delete: if hasPermission('manage_tournaments');
+    }
+    
+    // Round Robin Matches access control
+    match /roundRobinMatches/{document=**} {
+      allow read: if request.auth != null;
+      allow create: if hasPermission('record_results');
+      allow update: if hasPermission('record_results') || hasPermission('edit_results');
+      allow delete: if hasPermission('edit_results');
+    }
+    
+    // Round Robin Signups access control
+    match /roundRobinSignups/{document=**} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if request.auth != null;
+    }
+    
+    // Round Robin Standings access control
+    match /roundRobinStandings/{document=**} {
+      allow read: if request.auth != null;
+      allow write: if hasPermission('record_results') || isAdmin();
+    }
+    
+    // Data import/export access
+    match /dataBackups/{document=**} {
+      allow read: if hasPermission('export_data');
+      allow write: if hasPermission('import_data');
+    }
+    
+    // Records access control
+    match /records/{document=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+    
+    // Audit logs access control
+    match /auditLogs/{document=**} {
+      allow read: if hasPermission('view_logs') || isAdmin();
+      allow write: if false; // Only Cloud Functions can write
+    }
+    
+    // Settings access control
+    match /settings/{document=**} {
+      allow read: if request.auth != null;
+      allow write: if hasPermission('manage_settings') || isAdmin();
+    }
+
+    // Authorized Users access control
+    match /authorizedUsers/{document=**} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null;
+    }
+
+    // Default deny - catch-all for any unmapped paths
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
+
