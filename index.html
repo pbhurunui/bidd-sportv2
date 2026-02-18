@@ -14261,6 +14261,7 @@ bob@example.com,scorekeeper
                 let updateCount = 0;
                 let issuesFound = 0;
                 let removedWrongRecords = 0;
+                let recordsCreated = 0;
                 const issues = [];
                 
                 // First pass: Remove records stored with wrong age category
@@ -14325,19 +14326,36 @@ bob@example.com,scorekeeper
                         }
                     } else {
                         // No record exists yet - this result becomes the first record
+                        // CREATE the missing record entry
+                        const newRecord = {
+                            id: `record-${Date.now()}-${Math.random()}`,
+                            eventId: event.id,
+                            eventType: event.type,
+                            competitorId: competitor.id,
+                            competitorName: competitor.name,
+                            gender: competitorGender,
+                            ageGroup: competitorAge,
+                            time: result.time,
+                            timeInSeconds: timeInSeconds,
+                            year: new Date().getFullYear()
+                        };
+                        records.push(newRecord);
                         result.recordBroken = true;
                         updateCount++;
+                        recordsCreated++;
+                        issues.push(`✅ Created missing record for ${newRecord.competitorName} - ${newRecord.eventType} (${competitorGender}/${competitorAge})`);
                     }
                 });
                 
                 // Save if changes were made
-                if (updateCount > 0 || issuesFound > 0 || removedWrongRecords > 0) {
+                if (updateCount > 0 || issuesFound > 0 || removedWrongRecords > 0 || recordsCreated > 0) {
                     saveData();
                     console.log('%c✅ RECHECK COMPLETE', 'background: #10b981; color: white; padding: 8px 12px; border-radius: 3px; font-weight: bold; font-size: 12px;');
                     console.log(`Updates applied: ${updateCount}`);
+                    console.log(`Records created: ${recordsCreated}`);
                     console.log(`Wrong-age records removed: ${removedWrongRecords}`);
                     if (issues.length > 0) {
-                        console.log('%cCleaned Up:', 'color: #d97706; font-weight: bold;');
+                        console.log('%cActions Taken:', 'color: #d97706; font-weight: bold;');
                         issues.forEach(issue => console.log(`  • ${issue}`));
                     }
                 } else {
