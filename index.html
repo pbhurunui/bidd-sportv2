@@ -568,7 +568,10 @@
                 }
             } catch (error) {
                 console.error('❌ Firebase recovery failed:', error);
-                alert('❌ Failed to recover from Firebase: ' + error.message);
+                // Only alert if online - offline users can work with local data
+                if (navigator.onLine && error.message && !error.message.includes('Failed to fetch')) {
+                    alert('❌ Failed to recover from Firebase: ' + error.message);
+                }
             }
         }
         
@@ -1263,7 +1266,7 @@
          * Quick Dev Login - For development only
          * Allows rapid login with demo credentials without entering them manually each time
          */
-        function quickDevLogin() {
+        async function quickDevLogin() {
             // Use the first authorized user's email or a demo email
             const firstUser = authorizedUsers && authorizedUsers.length > 0 ? authorizedUsers[0].email : 'pb@hurunuicollege.school.nz';
             const devPassword = localStorage.getItem('devPassword');
@@ -1285,8 +1288,8 @@
             
             console.log('🚀 [Dev Login] Signing in as:', firstUser);
             
-            // Attempt sign in
-            attemptSignIn();
+            // Attempt sign in (await for completion)
+            await attemptSignIn();
         }
         
         function showView(viewName) {
@@ -5358,13 +5361,18 @@ bob@example.com,scorekeeper
                     console.error('Response body:', errorText);
                     updateSyncStatus('✗ Sync failed');
                     setTimeout(() => updateSyncStatus(''), 4000);
-                    alert('❌ Failed to save to cloud: ' + response.statusText + '\n\nError: ' + errorText);
+                    if (navigator.onLine) {
+                        alert('❌ Failed to save to cloud: ' + response.statusText + '\n\nError: ' + errorText);
+                    }
                 }
             } catch (error) {
                 console.error('Error syncing to Realtime Database:', error);
                 updateSyncStatus('✗ Sync failed');
                 setTimeout(() => updateSyncStatus(''), 4000);
-                alert('❌ Error: ' + error.message);
+                // Only alert if it's not a network error (offline)
+                if (error.message && !error.message.includes('Failed to fetch')) {
+                    alert('❌ Error: ' + error.message);
+                }
             }
         }
 
@@ -5459,13 +5467,18 @@ bob@example.com,scorekeeper
                     console.error('Response body:', errorText);
                     updateSyncStatus('✗ Sync failed');
                     setTimeout(() => updateSyncStatus(''), 4000);
-                    alert('❌ Failed to save to cloud: ' + response.statusText + '\n\nError: ' + errorText);
+                    if (navigator.onLine) {
+                        alert('❌ Failed to save to cloud: ' + response.statusText + '\n\nError: ' + errorText);
+                    }
                 }
             } catch (error) {
                 console.error('Error syncing all sports to Realtime Database:', error);
                 updateSyncStatus('✗ Sync failed');
                 setTimeout(() => updateSyncStatus(''), 4000);
-                alert('❌ Error: ' + error.message);
+                // Only alert if it's not a network error (offline)
+                if (error.message && !error.message.includes('Failed to fetch') && navigator.onLine) {
+                    alert('❌ Error: ' + error.message);
+                }
             }
         }
 
@@ -7410,7 +7423,7 @@ bob@example.com,scorekeeper
                 });
                 
                 return `
-                    <div class="bg-slate-50 border-2 border-slate-200 rounded-lg p-4 hover:border-${house.color}-400 transition">
+                    <div class="tournament-house-card bg-slate-50 border-2 border-slate-200 rounded-lg p-4 hover:border-${house.color}-400 transition cursor-pointer hover:shadow-lg" data-house-id="${house.id}">
                         <div class="flex justify-between items-start mb-3">
                             <div>
                                 <p class="font-bold text-lg text-slate-900">${house.name}</p>
@@ -7418,17 +7431,29 @@ bob@example.com,scorekeeper
                             </div>
                             <div class="w-6 h-6 rounded-full" style="background-color: ${getHouseColor(house.color)}"></div>
                         </div>
+                        <p class="text-xs text-slate-500 mb-3">Click to view contributors</p>
                         <div class="flex gap-2">
-                            <button onclick="editTournamentHouse('${house.id}')" class="flex-1 px-2 py-1 text-xs bg-blue-500 hover:bg-blue-600 text-white rounded">
+                            <button onclick="editTournamentHouse('${house.id}'); return false;" class="flex-1 px-2 py-1 text-xs bg-blue-500 hover:bg-blue-600 text-white rounded">
                                 Edit
                             </button>
-                            <button onclick="deleteTournamentHouse('${house.id}')" class="flex-1 px-2 py-1 text-xs bg-red-500 hover:bg-red-600 text-white rounded">
+                            <button onclick="deleteTournamentHouse('${house.id}'); return false;" class="flex-1 px-2 py-1 text-xs bg-red-500 hover:bg-red-600 text-white rounded">
                                 Delete
                             </button>
                         </div>
                     </div>
                 `;
             }).join('');
+            
+            // Add click event listeners to house cards for viewing contributors
+            document.querySelectorAll('.tournament-house-card').forEach(card => {
+                card.addEventListener('click', function(e) {
+                    // Don't trigger if clicking Edit or Delete buttons
+                    if (e.target.tagName === 'BUTTON') return;
+                    
+                    const houseId = this.getAttribute('data-house-id');
+                    showTournamentHouseDetailsModal(houseId);
+                });
+            });
         }
 
         function getHouseColor(colorName) {
@@ -7441,6 +7466,97 @@ bob@example.com,scorekeeper
                 'orange': '#f97316'
             };
             return colors[colorName] || '#64748b';
+        }
+
+        function showTournamentHouseDetailsModal(houseId) {
+            const house = houses.find(h => h.id === houseId);
+            if (!house) {
+                alert('House not found');
+                return;
+            }
+            
+            // Get competitors in this house and in current tournament
+            const houseCompetitors = competitors.filter(c => c.houseId === houseId && c.tournamentId === currentTournamentId);
+            
+            // Calculate points per competitor
+            const contributorsList = houseCompetitors.map(competitor => {
+                const competitorResults = results.filter(r => r.competitorId === competitor.id);
+                
+                let totalPoints = 0;
+                const contributions = [];
+                
+                competitorResults.forEach(result => {
+                    let pointsForResult = 0;
+                    
+                    // 1 point for participation
+                    if (result.time || result.position) {
+                        pointsForResult += 1;
+                    }
+                    
+                    // Bonus points for placement
+                    if (result.position === 1) pointsForResult += 4;
+                    else if (result.position === 2) pointsForResult += 2;
+                    else if (result.position === 3) pointsForResult += 1;
+                    
+                    if (pointsForResult > 0) {
+                        totalPoints += pointsForResult;
+                        contributions.push({
+                            eventId: result.eventId,
+                            time: result.time,
+                            position: result.position,
+                            points: pointsForResult
+                        });
+                    }
+                });
+                
+                return {
+                    competitorId: competitor.id,
+                    name: competitor.name,
+                    totalPoints,
+                    contributions
+                };
+            })
+            .filter(c => c.totalPoints > 0)
+            .sort((a, b) => b.totalPoints - a.totalPoints);
+            
+            let html = `
+                <div class="bg-white rounded-xl shadow-xl max-w-2xl w-full p-6 max-h-96 overflow-y-auto">
+                    <div class="flex items-center gap-3 mb-6">
+                        <div class="w-8 h-8 rounded-full" style="background-color: ${getHouseColor(house.color)}"></div>
+                        <h3 class="text-2xl font-bold text-slate-900">${house.name} - Contributors</h3>
+                    </div>
+                    
+                    ${contributorsList.length > 0 ? `
+                        <div class="space-y-3">
+                            ${contributorsList.map((contributor, idx) => `
+                                <div class="bg-slate-50 rounded-lg p-4 border-l-4" style="border-left-color: ${getHouseColor(house.color)}">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <p class="font-bold text-slate-900">${idx + 1}. ${contributor.name}</p>
+                                        <span class="px-3 py-1 rounded-full text-slate-900 font-bold text-sm" style="background-color: ${getHouseColor(house.color)}40">${contributor.totalPoints} pts</span>
+                                    </div>
+                                    <p class="text-xs text-slate-600">Contributed from ${contributor.contributions.length} result${contributor.contributions.length > 1 ? 's' : ''}</p>
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : `<p class="text-slate-500 text-center py-6">No contributors yet.</p>`}
+                    
+                    <button onclick="closeDynamicModal('tournamentHouseDetailsModal')" class="w-full mt-6 bg-slate-300 hover:bg-slate-400 text-slate-900 px-4 py-2 rounded-lg font-semibold">
+                        Close
+                    </button>
+                </div>
+            `;
+            
+            const modalId = 'tournamentHouseDetailsModal';
+            const existingModal = document.getElementById(modalId);
+            if (existingModal) existingModal.remove();
+            
+            const modalHtml = `
+                <div id="${modalId}" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 max-h-screen overflow-y-auto">
+                    ${html}
+                </div>
+            `;
+            
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
         }
 
         function editTournamentHouse(houseId) {
@@ -7474,6 +7590,9 @@ bob@example.com,scorekeeper
                 return event !== undefined;
             });
 
+            // Get gender filter state
+            window.tournamentStatsGender = window.tournamentStatsGender || null;
+
             // Calculate statistics
             let recordsBroken = 0;
             let competitorsParticipated = new Set();
@@ -7495,21 +7614,23 @@ bob@example.com,scorekeeper
                 
                 // Count wins/placings for each competitor
                 if (!competitorScores[result.competitorId]) {
-                    competitorScores[result.competitorId] = { count: 0, records: 0, name: '', id: result.competitorId };
+                    competitorScores[result.competitorId] = { count: 0, records: 0, name: '', id: result.competitorId, gender: '' };
                 }
                 competitorScores[result.competitorId].count++;
                 if (result.recordBroken) competitorScores[result.competitorId].records++;
             });
 
-            // Get competitor names
+            // Get competitor names and gender
             competitors.forEach(c => {
                 if (competitorScores[c.id]) {
                     competitorScores[c.id].name = c.name;
+                    competitorScores[c.id].gender = c.gender;
                 }
             });
 
-            // Sort and get top 3
-            const topCompetitors = Object.values(competitorScores)
+            // Sort and get top 3, optionally filtered by gender
+            let topCompetitors = Object.values(competitorScores)
+                .filter(comp => !window.tournamentStatsGender || normalizeGender(comp.gender) === normalizeGender(window.tournamentStatsGender))
                 .sort((a, b) => b.count - a.count)
                 .slice(0, 3);
 
@@ -7632,7 +7753,20 @@ bob@example.com,scorekeeper
                 </div>
 
                 <div class="bg-gradient-to-br from-amber-50 to-orange-100 rounded-lg p-6 border border-amber-200 mb-6">
-                    <h3 class="text-xl font-bold text-amber-900 mb-4">🏆 Top Performers</h3>
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-xl font-bold text-amber-900">🏆 Top Performers</h3>
+                        <div class="flex gap-2">
+                            <button onclick="window.tournamentStatsGender = null; renderTournamentStatistics();" class="px-3 py-2 ${!window.tournamentStatsGender ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-700'} hover:bg-blue-700 rounded-lg font-semibold text-sm">
+                                All Genders
+                            </button>
+                            <button onclick="window.tournamentStatsGender = 'Male'; renderTournamentStatistics();" class="px-3 py-2 ${window.tournamentStatsGender === 'Male' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-700'} hover:bg-blue-700 rounded-lg font-semibold text-sm">
+                                Male
+                            </button>
+                            <button onclick="window.tournamentStatsGender = 'Female'; renderTournamentStatistics();" class="px-3 py-2 ${window.tournamentStatsGender === 'Female' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-700'} hover:bg-blue-700 rounded-lg font-semibold text-sm">
+                                Female
+                            </button>
+                        </div>
+                    </div>
                     <div class="space-y-3">
                         ${topCompetitors.length > 0 ? topCompetitors.map((competitor, index) => {
                             const medals = ['🥇', '🥈', '🥉'];
@@ -7645,7 +7779,7 @@ bob@example.com,scorekeeper
                                             <span class="text-3xl">${medal}</span>
                                             <div>
                                                 <p class="font-bold text-gray-800">${competitor.name || 'Unknown'}</p>
-                                                <p class="text-sm text-gray-600">${competitor.count} Results</p>
+                                                <p class="text-sm text-gray-600">${competitor.count} Results • ${competitor.gender}</p>
                                             </div>
                                         </div>
                                         ${recordBadge}
@@ -8981,6 +9115,54 @@ bob@example.com,scorekeeper
             renderEventCompetitorsResults();
         }
 
+        function convertTimeToSeconds(timeStr) {
+            if (!timeStr) return Infinity;
+            
+            timeStr = timeStr.trim();
+            const num = parseFloat(timeStr);
+            if (!isNaN(num)) return num;
+            
+            // Handle mm:ss.ms format (e.g., "1:23.45" or "45:23.67")
+            if (timeStr.includes(':')) {
+                const parts = timeStr.split(':');
+                if (parts.length === 2) {
+                    const minutes = parseFloat(parts[0]);
+                    const seconds = parseFloat(parts[1]);
+                    if (!isNaN(minutes) && !isNaN(seconds)) {
+                        return minutes * 60 + seconds;
+                    }
+                }
+            }
+            
+            return Infinity; // If can't parse, put at end
+        }
+
+        function getHouseColorHex(colorName) {
+            const colorMap = {
+                'red': '#dc2626',
+                'blue': '#2563eb',
+                'green': '#16a34a',
+                'purple': '#9333ea',
+                'yellow': '#eab308',
+                'pink': '#ec4899',
+                'indigo': '#4f46e5',
+                'cyan': '#06b6d4'
+            };
+            const result = colorMap[colorName?.toLowerCase()] || '#6b7280';
+            return result;
+        }
+
+        function normalizeGender(gender) {
+            if (gender === 'Male' || gender === 'Boys' || gender === 'M') return 'male';
+            if (gender === 'Female' || gender === 'Girls' || gender === 'F') return 'female';
+            return gender?.toLowerCase() || '';
+        }
+
+        function switchOpenEventGender(gender) {
+            currentEventGender = gender;
+            renderEventCompetitorsResults();
+        }
+
         function renderOpenEventView(event, grid) {
             // For Open Events, show Male/Female records and manually added competitors
             const recordDisplay = document.getElementById('recordDisplay');
@@ -9009,34 +9191,36 @@ bob@example.com,scorekeeper
             const isFieldEvent = event.category === 'Field';
             const unit = isFieldEvent ? ' m' : '';
             
-            // Display records
+            // Display records filtered by current gender
             let recordHTML = '<div class="space-y-2">';
-            if (maleRecord) {
-                recordHTML += `
-                    <div class="flex items-center justify-between bg-blue-50 p-3 rounded-lg">
-                        <div>
-                            <p class="font-semibold">🔵 Male Record: <strong>${maleRecord.time}${unit}</strong></p>
-                            <p class="text-sm">Set by ${maleRecord.competitorName || 'Unknown'}</p>
-                            <p class="text-xs text-slate-600">Year: ${maleRecord.year || 'N/A'}</p>
+            if (currentEventGender === 'Male') {
+                if (maleRecord) {
+                    recordHTML += `
+                        <div class="flex items-center justify-between bg-blue-50 p-3 rounded-lg">
+                            <div>
+                                <p class="font-semibold">🔵 Male Record: <strong>${maleRecord.time}${unit}</strong></p>
+                                <p class="text-sm">Set by ${maleRecord.competitorName || 'Unknown'}</p>
+                                <p class="text-xs text-slate-600">Year: ${maleRecord.year || 'N/A'}</p>
+                            </div>
                         </div>
-                    </div>
-                `;
-            } else {
-                recordHTML += '<p class="text-sm italic text-slate-600">No Male record set</p>';
-            }
-            
-            if (femaleRecord) {
-                recordHTML += `
-                    <div class="flex items-center justify-between bg-pink-50 p-3 rounded-lg">
-                        <div>
-                            <p class="font-semibold">🔴 Female Record: <strong>${femaleRecord.time}${unit}</strong></p>
-                            <p class="text-sm">Set by ${femaleRecord.competitorName || 'Unknown'}</p>
-                            <p class="text-xs text-slate-600">Year: ${femaleRecord.year || 'N/A'}</p>
+                    `;
+                } else {
+                    recordHTML += '<p class="text-sm italic text-slate-600">No Male record set</p>';
+                }
+            } else if (currentEventGender === 'Female') {
+                if (femaleRecord) {
+                    recordHTML += `
+                        <div class="flex items-center justify-between bg-pink-50 p-3 rounded-lg">
+                            <div>
+                                <p class="font-semibold">🔴 Female Record: <strong>${femaleRecord.time}${unit}</strong></p>
+                                <p class="text-sm">Set by ${femaleRecord.competitorName || 'Unknown'}</p>
+                                <p class="text-xs text-slate-600">Year: ${femaleRecord.year || 'N/A'}</p>
+                            </div>
                         </div>
-                    </div>
-                `;
-            } else {
-                recordHTML += '<p class="text-sm italic text-slate-600">No Female record set</p>';
+                    `;
+                } else {
+                    recordHTML += '<p class="text-sm italic text-slate-600">No Female record set</p>';
+                }
             }
             recordHTML += '</div>';
             
@@ -9044,43 +9228,48 @@ bob@example.com,scorekeeper
             
             // Get all competitors added to this open event
             const eventResults = results.filter(r => r.eventId === event.id);
-            const addedCompetitors = competitors.filter(c => 
+            const allAddedCompetitors = competitors.filter(c => 
                 eventResults.some(r => r.competitorId === c.id)
             );
             
+            // Filter competitors by current gender
+            const addedCompetitors = allAddedCompetitors.filter(c => {
+                const result = eventResults.find(r => r.competitorId === c.id);
+                const competitorGender = result?.linkedRecordGender || c.gender;
+                return competitorGender === currentEventGender;
+            });
+            
             // Get houses
             const tournament = tournaments.find(t => t.id === currentTournamentId);
-            const houses = tournament ? (tournament.houses || []) : [];
+            // Use the global houses array, filtered by tournament if needed
+            const housesForTournament = houses.filter(h => !h.tournamentId || h.tournamentId === currentTournamentId);
             const yearGroupsData = yearGroups.filter(yg => yg.tournamentId === currentTournamentId);
             
-            // Inline add competitor section
+            // Add gender toggle section
             let html = `
+                <div class="mb-4 flex gap-2 items-center flex-wrap">
+                    <span class="text-sm font-semibold text-slate-700">Filter by Gender:</span>
+                    <button onclick="switchOpenEventGender('Male')" class="px-4 py-2 ${currentEventGender === 'Male' ? 'bg-blue-600 text-white' : 'bg-blue-100 text-blue-900'} rounded-lg font-semibold transition">
+                        🔵 Male
+                    </button>
+                    <button onclick="switchOpenEventGender('Female')" class="px-4 py-2 ${currentEventGender === 'Female' ? 'bg-pink-600 text-white' : 'bg-pink-100 text-pink-900'} rounded-lg font-semibold transition">
+                        🔴 Female
+                    </button>
+                </div>
+            `;
+            
+            // Inline add competitor section
+            html += `
                 <div class="bg-green-50 border-2 border-green-300 rounded-lg p-4 mb-4">
                     <h4 class="font-bold text-green-900 mb-3">Add Competitor to Open Event</h4>
-                    <div class="space-y-3">
-                        <div class="flex gap-2 flex-wrap items-end">
-                            <div class="flex-1 min-w-48">
-                                <label class="block text-sm font-semibold text-green-900 mb-1">Competitor</label>
-                                <select id="inlineOpenEventSelect" class="w-full px-3 py-2 border border-green-300 rounded-lg">
-                                    <option value="">-- Select a competitor to add --</option>
-                                </select>
-                            </div>
-                            <div class="w-32">
-                                <label class="block text-sm font-semibold text-green-900 mb-1">Gender</label>
-                                <select id="inlineOpenEventGender" class="w-full px-3 py-2 border border-green-300 rounded-lg">
-                                    <option value="">-- Select --</option>
-                                    <option value="Male">🔵 Male</option>
-                                    <option value="Female">🔴 Female</option>
-                                </select>
-                            </div>
-                            <div class="flex-1 min-w-64">
-                                <label class="block text-sm font-semibold text-green-900 mb-1">Link to Record</label>
-                                <select id="inlineOpenEventRecord" class="w-full px-3 py-2 border border-green-300 rounded-lg">
-                                    <option value="">-- No specific record --</option>
-                                </select>
-                            </div>
-                            <button onclick="addInlineCompetitorToOpenEvent()" class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold">Add</button>
+                    <div class="flex gap-2 flex-wrap items-end">
+                        <div class="flex-1 min-w-48">
+                            <label class="block text-sm font-semibold text-green-900 mb-1">Competitor</label>
+                            <select id="inlineOpenEventSelect" class="w-full px-3 py-2 border border-green-300 rounded-lg">
+                                <option value="">-- Select a competitor to add --</option>
+                            </select>
                         </div>
+                        <button onclick="addInlineCompetitorToOpenEvent()" class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold">Add</button>
                     </div>
                 </div>
             `;
@@ -9090,10 +9279,32 @@ bob@example.com,scorekeeper
             if (addedCompetitors.length === 0) {
                 html += '<div class="text-center py-12 text-slate-500">No competitors added yet.</div>';
             } else {
-                html += addedCompetitors.map(competitor => {
-                    const house = houses.find(h => h.id === competitor.houseId);
-                    const yearGroup = competitor.yearGroup ? yearGroupsData.find(yg => yg.id === competitor.yearGroup) : null;
+                // Sort competitors by time to calculate positions for this gender filter
+                const sortedCompetitors = [...addedCompetitors].sort((a, b) => {
+                    const resultA = eventResults.find(r => r.competitorId === a.id);
+                    const resultB = eventResults.find(r => r.competitorId === b.id);
+                    const timeA = resultA?.time || '';
+                    const timeB = resultB?.time || '';
+                    
+                    // If both have times, sort by time (fastest first)
+                    if (timeA && timeB) {
+                        const secondsA = convertTimeToSeconds(timeA);
+                        const secondsB = convertTimeToSeconds(timeB);
+                        return secondsA - secondsB;
+                    }
+                    // Put competitors with times before those without
+                    if (timeA && !timeB) return -1;
+                    if (!timeA && timeB) return 1;
+                    return 0;
+                });
+                
+                html += sortedCompetitors.map((competitor) => {
+                    // Only assign position if competitor has a time
                     const result = eventResults.find(r => r.competitorId === competitor.id);
+                    const position = result?.time ? sortedCompetitors.findIndex(c => c.id === competitor.id) + 1 : '';
+                    const house = housesForTournament.find(h => h.id === competitor.houseId);
+                    const houseColor = house ? getHouseColorHex(house.color) : '#d1d5db';
+                    const yearGroup = competitor.yearGroup ? yearGroupsData.find(yg => yg.id === competitor.yearGroup) : null;
                     const isFieldEvent = event.category === 'Field';
                     
                     // Get available records for this event
@@ -9103,55 +9314,33 @@ bob@example.com,scorekeeper
                     const resultGender = result?.linkedRecordGender || competitor.gender;
                     
                     return `
-                        <div class="bg-white rounded-lg shadow p-4">
-                            <div class="flex items-center justify-between mb-3">
-                                <div class="flex items-center gap-3">
-                                    <div class="w-10 h-10 ${house ? `bg-${house.color}-500` : 'bg-slate-300'} rounded-full flex items-center justify-center text-white font-bold">
-                                        ${competitor.name.charAt(0)}
-                                    </div>
-                                    <div>
-                                        <p class="font-semibold text-slate-900">${competitor.name}</p>
-                                        <p class="text-sm text-slate-600">${competitor.gender} ${yearGroup ? `• ${yearGroup.name}` : ''} ${house ? `• ${house.name}` : ''}</p>
-                                    </div>
+                        <div class="bg-white rounded-lg shadow p-4 flex items-center justify-between">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold" style="background-color: ${houseColor}">
+                                    ${competitor.name.charAt(0)}
                                 </div>
-                                <button onclick="removeCompetitorFromEvent('${event.id}', '${competitor.id}')" class="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg font-semibold text-sm">
+                                <div>
+                                    <p class="font-semibold text-slate-900">${competitor.name}</p>
+                                    <p class="text-sm text-slate-600">${competitor.gender} ${yearGroup ? `• ${yearGroup.name}` : ''} ${house ? `• ${house.name}` : ''}</p>
+                                </div>
+                            </div>
+                            <div class="flex items-center gap-3">
+                                <button onclick="togglePP('${event.id}', '${competitor.id}'); renderEventCompetitorsResults();" class="px-3 py-2 ${result?.pp ? 'bg-purple-600 text-white' : 'bg-purple-100 text-purple-700'} hover:bg-purple-700 rounded-lg font-semibold text-sm">
+                                    ${result?.pp ? '✓ PP' : 'PP'}
+                                </button>
+                                <button onclick="toggleDQF('${event.id}', '${competitor.id}'); renderEventCompetitorsResults();" class="px-3 py-2 ${result?.dqf ? 'bg-orange-600 text-white' : 'bg-orange-100 text-orange-700'} hover:bg-orange-700 rounded-lg font-semibold text-sm">
+                                    ${result?.dqf ? '✓ DQF' : 'DQF'}
+                                </button>
+                                <input type="${isFieldEvent ? 'number' : 'text'}" placeholder="${isFieldEvent ? 'Distance (m)' : 'Time (mm:ss.ms)'}" 
+                                    value="${result && result.time ? result.time : ''}"
+                                    onchange="saveEventResult('${event.id}', '${competitor.id}', this.value, ''); renderEventCompetitorsResults();"
+                                    class="w-40 px-3 py-2 border border-slate-300 rounded-lg text-sm">
+                                <div class="w-24 px-3 py-2 border border-slate-300 rounded-lg text-sm bg-slate-100 font-semibold text-center">
+                                    ${position}
+                                </div>
+                                <button onclick="removeCompetitorFromOpenEventByIds('${event.id}', '${competitor.id}')" class="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg font-semibold text-sm">
                                     Remove
                                 </button>
-                            </div>
-                            <div class="grid grid-cols-2 md:grid-cols-5 gap-2 items-end">
-                                <div>
-                                    <label class="block text-xs font-semibold text-slate-700 mb-1">Gender</label>
-                                    <select onchange="saveOpenEventCompetitorData('${event.id}', '${competitor.id}', 'gender', this.value); renderEventCompetitorsResults();" 
-                                        class="w-full px-2 py-2 border border-slate-300 rounded text-sm">
-                                        <option value="Male" ${resultGender === 'Male' ? 'selected' : ''}>🔵 Male</option>
-                                        <option value="Female" ${resultGender === 'Female' ? 'selected' : ''}>🔴 Female</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-semibold text-slate-700 mb-1">Linked Record</label>
-                                    <select onchange="saveOpenEventCompetitorData('${event.id}', '${competitor.id}', 'linkedRecord', this.value); renderEventCompetitorsResults();" 
-                                        class="w-full px-2 py-2 border border-slate-300 rounded text-sm">
-                                        <option value="">-- None --</option>
-                                        ${resultGender === 'Male' ? 
-                                            maleRecords.map(r => `<option value="${r.id}" ${result?.linkedRecordId === r.id ? 'selected' : ''}>${r.competitorName || 'Record'} (${r.time})</option>`).join('')
-                                            : femaleRecords.map(r => `<option value="${r.id}" ${result?.linkedRecordId === r.id ? 'selected' : ''}>${r.competitorName || 'Record'} (${r.time})</option>`).join('')
-                                        }
-                                    </select>
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-semibold text-slate-700 mb-1">${isFieldEvent ? 'Distance (m)' : 'Time'}</label>
-                                    <input type="${isFieldEvent ? 'number' : 'text'}" placeholder="${isFieldEvent ? 'Distance' : 'Time'}" 
-                                        value="${result && result.time ? result.time : ''}"
-                                        onchange="saveEventResult('${event.id}', '${competitor.id}', this.value, ''); renderEventCompetitorsResults();"
-                                        class="w-full px-2 py-2 border border-slate-300 rounded text-sm">
-                                </div>
-                                <div>
-                                    <label class="block text-xs font-semibold text-slate-700 mb-1">Position</label>
-                                    <input type="number" placeholder="Pos" min="1" max="100"
-                                        value="${result && result.position ? result.position : ''}"
-                                        onchange="saveEventResult('${event.id}', '${competitor.id}', '', this.value); renderEventCompetitorsResults();"
-                                        class="w-full px-2 py-2 border border-slate-300 rounded text-sm">
-                                </div>
                             </div>
                         </div>
                     `;
@@ -9175,20 +9364,6 @@ bob@example.com,scorekeeper
                     option.textContent = `${c.name} (${c.gender})`;
                     select.appendChild(option);
                 });
-            }
-            
-            // Add event listener to update records dropdown when gender changes
-            const genderSelect = grid.querySelector('#inlineOpenEventGender');
-            const recordSelect = grid.querySelector('#inlineOpenEventRecord');
-            if (genderSelect && recordSelect) {
-                genderSelect.addEventListener('change', function() {
-                    updateOpenEventRecordsDropdown(event.id, this.value, recordSelect);
-                });
-                
-                // Initialize records dropdown with the first/default gender
-                if (genderSelect.value) {
-                    updateOpenEventRecordsDropdown(event.id, genderSelect.value, recordSelect);
-                }
             }
         }
 
@@ -9226,6 +9401,11 @@ bob@example.com,scorekeeper
             // Get tournament's age categories and year groups
             const tournamentAgeCategories = ageCategories.filter(ac => ac.tournamentId === currentTournamentId);
             const tournamentYearGroups = getTournamentYearGroups();
+            
+            // Get tournament and houses from global array (not tournament.houses which is empty)
+            const tournament = tournaments.find(t => t.id === currentTournamentId);
+            const housesForEvent = houses.filter(h => !h.tournamentId || h.tournamentId === currentTournamentId);
+            const yearGroups = tournamentYearGroups;
             
             // Build filter UI
             let filterUI = `<div class="mb-6 flex gap-4 items-center flex-wrap">`;
@@ -9514,12 +9694,41 @@ bob@example.com,scorekeeper
             // Apply sorting based on dropdown
             const sortBy = document.getElementById('sortBy')?.value || 'name';
             
+            // ALWAYS calculate positions by sorting by time first
+            const positionsByCompetitorId = {};
+            // Only include competitors with times
+            const competitorsWithTimes = eligibleCompetitors.filter(c => {
+                const result = results.find(r => r.eventId === currentEventId && r.competitorId === c.id);
+                return result && result.time;
+            });
+            
+            const timeSorted = [...competitorsWithTimes].sort((a, b) => {
+                const resultA = results.find(r => r.eventId === currentEventId && r.competitorId === a.id);
+                const resultB = results.find(r => r.eventId === currentEventId && r.competitorId === b.id);
+                const timeA = resultA?.time || '';
+                const timeB = resultB?.time || '';
+                
+                const secondsA = convertTimeToSeconds(timeA);
+                const secondsB = convertTimeToSeconds(timeB);
+                return secondsA - secondsB;
+            });
+            
+            // Assign positions ONLY to competitors with times
+            timeSorted.forEach((competitor, index) => {
+                positionsByCompetitorId[competitor.id] = index + 1;
+            });
+            
+            console.log('Positions calculated:', Object.entries(positionsByCompetitorId).map(([id, pos]) => {
+                const c = competitors.find(comp => comp.id === id);
+                const r = results.find(res => res.competitorId === id && res.eventId === currentEventId);
+                return `${c?.name}: ${r?.time} -> position ${pos}`;
+            }));
+            
+            // Now sort for display according to sortBy dropdown
             if (sortBy === 'position') {
                 eligibleCompetitors.sort((a, b) => {
-                    const resultA = results.find(r => r.eventId === currentEventId && r.competitorId === a.id);
-                    const resultB = results.find(r => r.eventId === currentEventId && r.competitorId === b.id);
-                    const posA = resultA?.position || 999;
-                    const posB = resultB?.position || 999;
+                    const posA = positionsByCompetitorId[a.id] || Infinity;
+                    const posB = positionsByCompetitorId[b.id] || Infinity;
                     return posA - posB;
                 });
             } else if (sortBy === 'name') {
@@ -9527,22 +9736,24 @@ bob@example.com,scorekeeper
             } else {
                 // Sort by house (default)
                 eligibleCompetitors.sort((a, b) => {
-                    const houseA = houses.find(h => h.id === a.houseId)?.name || '';
-                    const houseB = houses.find(h => h.id === b.houseId)?.name || '';
+                    const houseA = housesForEvent.find(h => h.id === a.houseId)?.name || '';
+                    const houseB = housesForEvent.find(h => h.id === b.houseId)?.name || '';
                     return houseA.localeCompare(houseB);
                 });
             }
 
-            grid.innerHTML = filterUI + eligibleCompetitors.map(competitor => {
-                const house = houses.find(h => h.id === competitor.houseId);
+            grid.innerHTML = filterUI + eligibleCompetitors.map((competitor) => {
+                const house = housesForEvent.find(h => h.id === competitor.houseId);
+                const houseColor = house ? getHouseColorHex(house.color) : '#d1d5db';
                 const yearGroup = competitor.yearGroup ? yearGroups.find(yg => yg.id === competitor.yearGroup) : null;
                 const result = results.find(r => r.eventId === currentEventId && r.competitorId === competitor.id);
                 const isFieldEvent = event.category === 'Field';
+                const autoPosition = positionsByCompetitorId[competitor.id] || '-';
                 
                 return `
                     <div class="bg-white rounded-lg shadow p-4 flex items-center justify-between">
                         <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 ${house ? `bg-${house.color}-500` : 'bg-slate-300'} rounded-full flex items-center justify-center text-white font-bold">
+                            <div class="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold" style="background-color: ${houseColor}">
                                 ${competitor.name.charAt(0)}
                             </div>
                             <div>
@@ -9551,14 +9762,19 @@ bob@example.com,scorekeeper
                             </div>
                         </div>
                         <div class="flex items-center gap-3">
+                            <button onclick="togglePP('${currentEventId}', '${competitor.id}'); renderEventCompetitorsResults();" class="px-3 py-2 ${result?.pp ? 'bg-purple-600 text-white' : 'bg-purple-100 text-purple-700'} hover:bg-purple-700 rounded-lg font-semibold text-sm">
+                                ${result?.pp ? '✓ PP' : 'PP'}
+                            </button>
+                            <button onclick="toggleDQF('${currentEventId}', '${competitor.id}'); renderEventCompetitorsResults();" class="px-3 py-2 ${result?.dqf ? 'bg-orange-600 text-white' : 'bg-orange-100 text-orange-700'} hover:bg-orange-700 rounded-lg font-semibold text-sm">
+                                ${result?.dqf ? '✓ DQF' : 'DQF'}
+                            </button>
                             <input type="${isFieldEvent ? 'number' : 'text'}" placeholder="${isFieldEvent ? 'Distance (m)' : 'Time (mm:ss.ms)'}" 
                                 value="${result && result.time ? result.time : ''}"
                                 onchange="saveEventResult('${currentEventId}', '${competitor.id}', this.value, ''); renderEventCompetitorsResults();"
                                 class="w-40 px-3 py-2 border border-slate-300 rounded-lg text-sm">
-                            <input type="number" placeholder="Position" min="1" max="100"
-                                value="${result && result.position ? result.position : ''}"
-                                onchange="saveEventResult('${currentEventId}', '${competitor.id}', '', this.value); renderEventCompetitorsResults();"
-                                class="w-24 px-3 py-2 border border-slate-300 rounded-lg text-sm">
+                            <div class="w-24 px-3 py-2 border border-slate-300 rounded-lg text-sm bg-slate-100 font-semibold text-center">
+                                ${autoPosition}
+                            </div>
                         </div>
                     </div>
                 `;
@@ -9577,6 +9793,19 @@ bob@example.com,scorekeeper
             }
         }
 
+        function removeCompetitorFromOpenEventByIds(eventId, competitorId) {
+            if (!requireSignIn()) return;
+            
+            if (confirm('Remove this competitor from the event?')) {
+                results = results.filter(r => !(r.eventId === eventId && r.competitorId === competitorId));
+                const competitor = competitors.find(c => c.id === competitorId);
+                trackChange(`Removed ${competitor?.name} from event`);
+                saveData();
+                renderEventCompetitorsResults();
+                renderEvents();
+            }
+        }
+
         function addInlineCompetitorToOpenEvent() {
             if (!requireSignIn()) return;
             
@@ -9584,22 +9813,13 @@ bob@example.com,scorekeeper
             if (!requirePermission('record_results')) return;
             
             const select = document.getElementById('inlineOpenEventSelect');
-            const genderSelect = document.getElementById('inlineOpenEventGender');
-            const recordSelect = document.getElementById('inlineOpenEventRecord');
             
             if (!select) return;
             
             const competitorId = select.value;
-            const selectedGender = genderSelect?.value || '';
-            const linkedRecordId = recordSelect?.value || '';
             
             if (!competitorId) {
                 alert('Please select a competitor');
-                return;
-            }
-            
-            if (!selectedGender) {
-                alert('Please select a gender');
                 return;
             }
             
@@ -9612,7 +9832,7 @@ bob@example.com,scorekeeper
             
             const competitor = competitors.find(c => c.id === competitorId);
             
-            // Add the result with gender and linked record
+            // Add the result
             results.push({
                 id: Date.now().toString(),
                 eventId: currentEventId,
@@ -9620,20 +9840,16 @@ bob@example.com,scorekeeper
                 tournamentId: currentTournamentId,
                 time: '',
                 position: null,
-                linkedRecordGender: selectedGender,
-                linkedRecordId: linkedRecordId || null,
                 createdAt: new Date().toISOString()
             });
             
-            trackChange(`Added ${competitor.name} to event (${selectedGender})`);
+            trackChange(`Added ${competitor.name} to event`);
             saveData();
             buildCompetitorResultsCache();
             calculateCompetitorStats();
             
             // Reset form
             select.value = '';
-            genderSelect.value = '';
-            recordSelect.value = '';
             
             // Refresh display
             renderEventCompetitorsResults();
@@ -9860,6 +10076,12 @@ bob@example.com,scorekeeper
                 if (position !== undefined) {
                     entry.position = parsedPosition;
                 }
+                
+                // Auto-enable PP if there is a result
+                if ((time && time !== '') || (parsedPosition !== null)) {
+                    entry.pp = true;
+                }
+                
                 console.log('Updated result:', entry);
                 
                 // Check if this is a record
@@ -9876,10 +10098,100 @@ bob@example.com,scorekeeper
                 }
                 
                 calculateAndDisplayHousePoints();
+                
+                // Re-render to show PP toggle update
+                if (typeof renderEventCompetitorsResults === 'function') {
+                    renderEventCompetitorsResults();
+                }
+                
                 console.log('Result saved successfully');
             } catch (error) {
                 console.error('Error saving result:', error);
                 alert('Error saving result: ' + error.message);
+            }
+        }
+
+        function togglePP(eventId, competitorId) {
+            if (!requireSignIn()) return;
+            
+            // PERMISSION CHECK: record_results
+            if (!requirePermission('record_results')) return;
+            
+            try {
+                const entry = results.find(r => r.eventId === eventId && r.competitorId === competitorId);
+                if (!entry) {
+                    alert('Result entry not found');
+                    return;
+                }
+                
+                // Toggle PP status
+                const wasPP = entry.pp || false;
+                entry.pp = !wasPP;
+                
+                const competitor = getCompetitorById(competitorId);
+                const competitorHouse = competitor ? houses.find(h => h.id === competitor.houseId) : null;
+                
+                if (entry.pp) {
+                    // Mark as PP - add to house points
+                    if (competitorHouse) {
+                        console.log(`${competitor.name} (${competitorHouse.name}) awarded PP - house gains point`);
+                        trackChange(`PP: ${competitor.name} - ${competitorHouse.name} gains point`);
+                    }
+                } else {
+                    // Unmark PP
+                    if (competitorHouse) {
+                        console.log(`${competitor.name} PP removed`);
+                        trackChange(`PP removed: ${competitor.name}`);
+                    }
+                }
+                
+                saveData();
+                calculateAndDisplayHousePoints();
+            } catch (error) {
+                console.error('Error toggling PP:', error);
+                alert('Error toggling PP: ' + error.message);
+            }
+        }
+
+        function toggleDQF(eventId, competitorId) {
+            if (!requireSignIn()) return;
+            
+            // PERMISSION CHECK: record_results
+            if (!requirePermission('record_results')) return;
+            
+            try {
+                const entry = results.find(r => r.eventId === eventId && r.competitorId === competitorId);
+                if (!entry) {
+                    alert('Result entry not found');
+                    return;
+                }
+                
+                // Toggle DQF status
+                const wasDQF = entry.dqf || false;
+                entry.dqf = !wasDQF;
+                
+                const competitor = getCompetitorById(competitorId);
+                const competitorHouse = competitor ? houses.find(h => h.id === competitor.houseId) : null;
+                
+                if (entry.dqf) {
+                    // Mark as DQF - add to house points
+                    if (competitorHouse) {
+                        console.log(`${competitor.name} (${competitorHouse.name}) marked as DQF - house gains point`);
+                        trackChange(`DQF: ${competitor.name} - ${competitorHouse.name} gains point`);
+                    }
+                } else {
+                    // Unmark DQF
+                    if (competitorHouse) {
+                        console.log(`${competitor.name} DQF removed`);
+                        trackChange(`DQF removed: ${competitor.name}`);
+                    }
+                }
+                
+                saveData();
+                calculateAndDisplayHousePoints();
+            } catch (error) {
+                console.error('Error toggling DQF:', error);
+                alert('Error toggling DQF: ' + error.message);
             }
         }
 
@@ -9986,6 +10298,27 @@ bob@example.com,scorekeeper
                 console.log('Auto-calculated positions complete:', sortedResults);
             } catch (error) {
                 console.error('Error in autoCalculatePositions:', error);
+            }
+        }
+
+        function enablePPForAllExistingResults() {
+            let updatedCount = 0;
+            
+            results.forEach(result => {
+                // Enable PP if result has time or position
+                if ((result.time && result.time !== '') || (result.position !== null && result.position !== '')) {
+                    result.pp = true;
+                    updatedCount++;
+                }
+            });
+            
+            if (updatedCount > 0) {
+                saveData();
+                calculateAndDisplayHousePoints();
+                console.log(`✅ Enabled PP for ${updatedCount} results`);
+                alert(`✅ Participation Points (PP) enabled for ${updatedCount} existing results!`);
+            } else {
+                alert('No results with time or position found.');
             }
         }
 
@@ -10144,8 +10477,19 @@ bob@example.com,scorekeeper
                 });
             }
             
+            // Auto-enable PP if there is a result
+            const result = results.find(r => r.heatId === heatId && r.competitorId === competitorId);
+            if (time && time !== '') {
+                result.pp = true;
+            }
+            
             saveData();
             calculateCompetitorStats();
+            
+            // Re-render heats to show PP toggle update
+            if (typeof renderHeats === 'function') {
+                renderHeats();
+            }
         }
 
         function updatePosition(heatId, competitorId, position) {
@@ -11720,57 +12064,178 @@ bob@example.com,scorekeeper
             }
         }
 
+        // Calculate top performers by entries and house points
+        function calculateTopPerformers(sortBy = 'entries', genderFilter = null) {
+            const performerStats = competitors.map(competitor => {
+                // Count entries for this competitor
+                const competitorResults = results.filter(r => r.competitorId === competitor.id);
+                
+                // Count total house points earned from DQF and PP
+                let totalHousePoints = 0;
+                competitorResults.forEach(result => {
+                    if (result.dqf) totalHousePoints += 1;
+                    if (result.pp) totalHousePoints += 1;
+                });
+                
+                return {
+                    competitorId: competitor.id,
+                    name: competitor.name,
+                    gender: competitor.gender,
+                    house: competitor.house || 'Unknown',
+                    houseId: competitor.houseId,
+                    entries: competitorResults.length,
+                    housePoints: totalHousePoints,
+                    ageCategory: competitor.ageCategory || 'N/A',
+                    yearGroup: competitor.yearGroup || 'N/A'
+                };
+            })
+            .filter(stat => stat.entries > 0) // Only show competitors with at least one entry
+            .filter(stat => !genderFilter || normalizeGender(stat.gender) === normalizeGender(genderFilter));
+            
+            // Sort by requested metric
+            if (sortBy === 'entries') {
+                performerStats.sort((a, b) => b.entries - a.entries);
+            } else if (sortBy === 'housePoints') {
+                performerStats.sort((a, b) => b.housePoints - a.housePoints);
+            } else {
+                // Default: sort by house points, then entries
+                performerStats.sort((a, b) => {
+                    if (b.housePoints !== a.housePoints) return b.housePoints - a.housePoints;
+                    return b.entries - a.entries;
+                });
+            }
+            
+            return performerStats;
+        }
+
         function renderStatistics() {
             const grid = document.getElementById('statisticsGrid');
+            
+            // Get sort preference from global state (default to entries)
+            window.statsCurrentSort = window.statsCurrentSort || 'entries';
+            window.statsCurrentGender = window.statsCurrentGender || null;
+            
+            // Get top performers
+            const topPerformers = calculateTopPerformers(window.statsCurrentSort, window.statsCurrentGender);
             
             // Get all broken records
             const brokenRecords = records.filter(r => r.recordBroken);
             
-            if (brokenRecords.length === 0) {
-                grid.innerHTML = '<div class="text-center py-12 text-slate-500">No records broken yet!</div>';
-                return;
-            }
-
-            // Group by competitor
-            const recordsByCompetitor = {};
-            brokenRecords.forEach(record => {
-                if (!recordsByCompetitor[record.competitorId]) {
-                    recordsByCompetitor[record.competitorId] = [];
-                }
-                recordsByCompetitor[record.competitorId].push(record);
-            });
-
-            grid.innerHTML = Object.entries(recordsByCompetitor).map(([competitorId, competitorRecords]) => {
-                const competitor = competitors.find(c => c.id === competitorId);
-                const house = competitor ? houses.find(h => h.id === competitor.houseId) : null;
-                
-                if (!competitor) return '';
-
-                return `
-                    <div class="bg-white rounded-lg shadow-lg p-6 border-l-4 border-yellow-400">
-                        <div class="flex items-center justify-between mb-4">
-                            <div>
-                                <h3 class="text-xl font-bold text-slate-900">${competitor.name}</h3>
-                                <p class="text-sm text-slate-600">${competitor.gender} • Age ${competitor.age} ${house ? `• ${house.name}` : ''}</p>
-                            </div>
-                            <span class="text-3xl font-bold text-yellow-500">${competitorRecords.length}</span>
+            let html = '';
+            
+            // Top Performers Section
+            html += `
+                <div class="mb-8">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-2xl font-bold text-slate-900">🏆 Top Performers</h3>
+                        <div class="flex gap-2">
+                            <button onclick="window.statsCurrentGender = null; renderStatistics();" class="px-3 py-2 ${!window.statsCurrentGender ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-700'} hover:bg-blue-700 rounded-lg font-semibold text-sm">
+                                All Genders
+                            </button>
+                            <button onclick="window.statsCurrentGender = 'Male'; renderStatistics();" class="px-3 py-2 ${window.statsCurrentGender === 'Male' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-700'} hover:bg-blue-700 rounded-lg font-semibold text-sm">
+                                Male
+                            </button>
+                            <button onclick="window.statsCurrentGender = 'Female'; renderStatistics();" class="px-3 py-2 ${window.statsCurrentGender === 'Female' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-700'} hover:bg-blue-700 rounded-lg font-semibold text-sm">
+                                Female
+                            </button>
                         </div>
-                        <p class="text-sm font-semibold text-slate-700 mb-3">Record${competitorRecords.length > 1 ? 's' : ''} Broken:</p>
-                        <div class="space-y-2">
-                            ${competitorRecords.map(record => `
-                                <div class="bg-yellow-50 rounded p-3 border-l-2 border-yellow-400">
-                                    <p class="font-semibold text-slate-900">${record.eventType}</p>
-                                    <p class="text-sm text-slate-600">${record.gender} • ${record.ageGroup}</p>
-                                    <div class="flex justify-between mt-2">
-                                        <span class="text-lg font-bold text-yellow-600">${record.time}</span>
-                                        <span class="text-xs text-slate-500">Previous: ${record.previousRecord.time}</span>
+                    </div>
+                    
+                    <div class="flex gap-2 mb-4">
+                        <button onclick="window.statsCurrentSort = 'entries'; renderStatistics();" class="px-4 py-2 ${window.statsCurrentSort === 'entries' ? 'bg-amber-600 text-white' : 'bg-amber-100 text-amber-700'} hover:bg-amber-700 rounded-lg font-semibold text-sm">
+                            📊 Most Entries
+                        </button>
+                        <button onclick="window.statsCurrentSort = 'housePoints'; renderStatistics();" class="px-4 py-2 ${window.statsCurrentSort === 'housePoints' ? 'bg-purple-600 text-white' : 'bg-purple-100 text-purple-700'} hover:bg-purple-700 rounded-lg font-semibold text-sm">
+                            🏠 Most House Points
+                        </button>
+                    </div>
+                    
+                    ${topPerformers.length > 0 ? `
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-sm">
+                                <thead>
+                                    <tr class="border-b-2 border-slate-300 bg-slate-50">
+                                        <th class="px-4 py-3 text-left font-bold text-slate-700">Rank</th>
+                                        <th class="px-4 py-3 text-left font-bold text-slate-700">Name</th>
+                                        <th class="px-4 py-3 text-left font-bold text-slate-700">Gender</th>
+                                        <th class="px-4 py-3 text-left font-bold text-slate-700">House</th>
+                                        <th class="px-4 py-3 text-center font-bold text-slate-700">📊 Entries</th>
+                                        <th class="px-4 py-3 text-center font-bold text-slate-700">🏠 House Points</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${topPerformers.map((stat, idx) => `
+                                        <tr class="border-b border-slate-200 hover:bg-slate-50">
+                                            <td class="px-4 py-3 font-bold text-slate-900">${idx + 1}</td>
+                                            <td class="px-4 py-3 font-semibold text-slate-900">${stat.name}</td>
+                                            <td class="px-4 py-3 text-slate-600">${stat.gender}</td>
+                                            <td class="px-4 py-3">
+                                                <span class="px-3 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-800">${stat.house}</span>
+                                            </td>
+                                            <td class="px-4 py-3 text-center">
+                                                <span class="px-3 py-1 rounded-full bg-amber-100 text-amber-800 font-bold">${stat.entries}</span>
+                                            </td>
+                                            <td class="px-4 py-3 text-center">
+                                                <span class="px-3 py-1 rounded-full bg-purple-100 text-purple-800 font-bold">${stat.housePoints}</span>
+                                            </td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    ` : '<p class="text-slate-500 text-center py-4">No competitors with entries yet.</p>'}
+                </div>
+            `;
+            
+            // Records Broken Section
+            if (brokenRecords.length > 0) {
+                html += `
+                    <div>
+                        <h3 class="text-2xl font-bold text-slate-900 mb-4">📜 Records Broken</h3>
+                        <div class="space-y-4">
+                            ${Object.entries(brokenRecords.reduce((acc, record) => {
+                                if (!acc[record.competitorId]) acc[record.competitorId] = [];
+                                acc[record.competitorId].push(record);
+                                return acc;
+                            }, {})).map(([competitorId, competitorRecords]) => {
+                                const competitor = competitors.find(c => c.id === competitorId);
+                                const house = competitor ? houses.find(h => h.id === competitor.houseId) : null;
+                                
+                                if (!competitor) return '';
+
+                                return `
+                                    <div class="bg-white rounded-lg shadow-lg p-6 border-l-4 border-yellow-400">
+                                        <div class="flex items-center justify-between mb-4">
+                                            <div>
+                                                <h3 class="text-xl font-bold text-slate-900">${competitor.name}</h3>
+                                                <p class="text-sm text-slate-600">${competitor.gender} • Age ${competitor.age} ${house ? `• ${house.name}` : ''}</p>
+                                            </div>
+                                            <span class="text-3xl font-bold text-yellow-500">${competitorRecords.length}</span>
+                                        </div>
+                                        <p class="text-sm font-semibold text-slate-700 mb-3">Record${competitorRecords.length > 1 ? 's' : ''} Broken:</p>
+                                        <div class="space-y-2">
+                                            ${competitorRecords.map(record => `
+                                                <div class="bg-yellow-50 rounded p-3 border-l-2 border-yellow-400">
+                                                    <p class="font-semibold text-slate-900">${record.eventType}</p>
+                                                    <p class="text-sm text-slate-600">${record.gender} • ${record.ageGroup}</p>
+                                                    <div class="flex justify-between mt-2">
+                                                        <span class="text-lg font-bold text-yellow-600">${record.time}</span>
+                                                        <span class="text-xs text-slate-500">Previous: ${record.previousRecord.time}</span>
+                                                    </div>
+                                                </div>
+                                            `).join('')}
+                                        </div>
                                     </div>
-                                </div>
-                            `).join('')}
+                                `;
+                            }).join('')}
                         </div>
                     </div>
                 `;
-            }).filter(x => x).join('');
+            } else if (topPerformers.length === 0) {
+                html = '<div class="text-center py-12 text-slate-500">No statistics yet. Add competitors and record results to see statistics!</div>';
+            }
+            
+            grid.innerHTML = html;
         }
 
         function renderRecords() {
@@ -12038,7 +12503,9 @@ bob@example.com,scorekeeper
         }
 
         function renderHouses() {
+            console.log('renderHouses() called');
             const grid = document.getElementById('housesGrid');
+            console.log('housesGrid element:', grid);
             
             // Filter to only show global houses (not tournament-scoped)
             const globalHouses = houses.filter(h => !h.tournamentId);
@@ -12072,16 +12539,124 @@ bob@example.com,scorekeeper
             }).sort((a, b) => b.points - a.points);
             
             grid.innerHTML = housePoints.map((h, idx) => `
-                <div class="bg-white rounded-xl shadow-lg p-6 border-t-4 border-${h.color}-500">
+                <div class="house-card bg-white rounded-xl shadow-lg p-6 border-t-4 border-${h.color}-500 cursor-pointer hover:shadow-xl transition" data-house-id="${h.id}">
                     <div class="flex items-center justify-between mb-4">
                         <h3 class="text-xl font-bold text-slate-900">${h.name}</h3>
                         <span class="text-sm font-semibold text-slate-600">#${idx + 1}</span>
                     </div>
                     <p class="text-3xl font-bold text-${h.color}-600 mb-2">${h.points} pts</p>
-                    <p class="text-slate-600">${h.competitorCount} competitors</p>
-                    <p class="text-xs text-slate-500 mt-3">Points: 1 (participation) + 4 (1st) / 2 (2nd) / 1 (3rd)</p>
+                    <p class="text-slate-600 mb-3">${h.competitorCount} competitors</p>
+                    <p class="text-xs text-slate-500">Click to view contributors</p>
                 </div>
             `).join('');
+            
+            // Add click event listeners to house cards
+            const houseCards = document.querySelectorAll('.house-card');
+            console.log('Found house cards:', houseCards.length);
+            
+            houseCards.forEach(card => {
+                card.addEventListener('click', function() {
+                    const houseId = this.getAttribute('data-house-id');
+                    console.log('House card clicked, houseId:', houseId);
+                    showHouseDetailsModal(houseId);
+                });
+            });
+        }
+
+        function showHouseDetailsModal(houseId) {
+            console.log('showHouseDetailsModal called with houseId:', houseId);
+            
+            const house = houses.find(h => h.id === houseId);
+            if (!house) {
+                alert('House not found');
+                console.log('House not found for ID:', houseId);
+                return;
+            }
+            
+            console.log('House found:', house);
+            
+            // Get competitors in this house
+            const houseCompetitors = competitors.filter(c => c.houseId === houseId);
+            
+            // Calculate points per competitor
+            const contributorsList = houseCompetitors.map(competitor => {
+                const competitorResults = results.filter(r => r.competitorId === competitor.id);
+                
+                let totalPoints = 0;
+                const contributions = [];
+                
+                competitorResults.forEach(result => {
+                    let pointsForResult = 0;
+                    
+                    // 1 point for participation
+                    if (result.time || result.position) {
+                        pointsForResult += 1;
+                    }
+                    
+                    // Bonus points for placement
+                    if (result.position === 1) pointsForResult += 4;
+                    else if (result.position === 2) pointsForResult += 2;
+                    else if (result.position === 3) pointsForResult += 1;
+                    
+                    if (pointsForResult > 0) {
+                        totalPoints += pointsForResult;
+                        contributions.push({
+                            eventId: result.eventId,
+                            time: result.time,
+                            position: result.position,
+                            points: pointsForResult
+                        });
+                    }
+                });
+                
+                return {
+                    competitorId: competitor.id,
+                    name: competitor.name,
+                    totalPoints,
+                    contributions
+                };
+            })
+            .filter(c => c.totalPoints > 0)
+            .sort((a, b) => b.totalPoints - a.totalPoints);
+            
+            let html = `
+                <div class="bg-white rounded-xl shadow-xl max-w-2xl w-full p-6 max-h-96 overflow-y-auto">
+                    <div class="flex items-center gap-3 mb-6">
+                        <div class="w-8 h-8 rounded-full bg-${house.color}-500"></div>
+                        <h3 class="text-2xl font-bold text-slate-900">${house.name} - Contributors</h3>
+                    </div>
+                    
+                    ${contributorsList.length > 0 ? `
+                        <div class="space-y-3">
+                            ${contributorsList.map((contributor, idx) => `
+                                <div class="bg-slate-50 rounded-lg p-4 border-l-4 border-${house.color}-500">
+                                    <div class="flex items-center justify-between mb-2">
+                                        <p class="font-bold text-slate-900">${idx + 1}. ${contributor.name}</p>
+                                        <span class="px-3 py-1 rounded-full bg-${house.color}-100 text-${house.color}-800 font-bold text-sm">${contributor.totalPoints} pts</span>
+                                    </div>
+                                    <p class="text-xs text-slate-600">Contributed from ${contributor.contributions.length} result${contributor.contributions.length > 1 ? 's' : ''}</p>
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : `<p class="text-slate-500 text-center py-6">No contributors yet.</p>`}
+                    
+                    <button onclick="closeDynamicModal('houseDetailsModal')" class="w-full mt-6 bg-slate-300 hover:bg-slate-400 text-slate-900 px-4 py-2 rounded-lg font-semibold">
+                        Close
+                    </button>
+                </div>
+            `;
+            
+            const modalId = 'houseDetailsModal';
+            const existingModal = document.getElementById(modalId);
+            if (existingModal) existingModal.remove();
+            
+            const modalHtml = `
+                <div id="${modalId}" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 max-h-screen overflow-y-auto">
+                    ${html}
+                </div>
+            `;
+            
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
         }
 
         function showAddHouseModal() {
