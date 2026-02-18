@@ -18,9 +18,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.23/jspdf.autotable.min.js"></script>
-    <!-- Firebase SDK for Firestore access (Realtime DB uses REST API) -->
-    <script src="https://www.gstatic.com/firebasejs/9.9.4/firebase-app.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.9.4/firebase-firestore.js"></script>
+    <!-- Firebase SDK removed - using REST API instead -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- Android Widget System -->
     <script src="widget.js"></script>
@@ -830,6 +828,26 @@
                 localStorage.setItem(`${currentSport}_competitors`, JSON.stringify(competitors));
             }
             
+            // BACKFILL: Fill in missing ageGroup values in results
+            // (from results created before this fix was deployed)
+            let backfilled = 0;
+            results.forEach(result => {
+                if (!result.ageGroup && result.competitorId) {
+                    const competitor = competitors.find(c => c.id === result.competitorId);
+                    if (competitor) {
+                        const ageGroup = getCompetitorCurrentAge(competitor);
+                        result.ageGroup = ageGroup;
+                        backfilled++;
+                        console.log(`🔄 Backfilled ageGroup for ${competitor.name}: "${ageGroup}"`);
+                    }
+                }
+            });
+            
+            if (backfilled > 0) {
+                console.log(`✅ Backfilled ${backfilled} result entries with missing ageGroup values`);
+                localStorage.setItem(`${currentSport}_results`, JSON.stringify(results));
+            }
+            
             // Calculate competitor stats from results if not already cached
             if (competitorStats.length === 0 && results.length > 0) {
                 calculateCompetitorStats();
@@ -1212,6 +1230,11 @@
             const beforeCount = records.length;
             records = records.filter(record => {
                 if (!record.competitorId) return true; // Keep manually-entered meet records
+                
+                // IMPORTANT: Never delete broken records or recently updated records
+                if (record.recordBroken || record.updatedAt) {
+                    return true; // Keep broken/updated records
+                }
                 
                 const competitor = getCompetitorById(record.competitorId);
                 if (!competitor) return true; // Keep if competitor not found
@@ -1921,9 +1944,49 @@
                     return;
                 }
 
-                // Handle Ctrl+Shift+L for Quick Dev Login
+                // Handle Ctrl+Shift+I for Data Inspector
+                if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'I') {
+                    e.preventDefault();
+                    
+                    // Search for Liam Clausen and show all results
+                    const liamResults = results.filter(r => {
+                        const comp = competitors.find(c => c.id === r.competitorId);
+                        return comp && comp.name && comp.name.toLowerCase().includes('liam');
+                    });
+                    
+                    console.log('%c=== LIAM CLAUSEN RESULTS ===', 'color: #f97316; font-weight: bold; font-size: 14px;');
+                    liamResults.forEach((result, idx) => {
+                        const event = events.find(e => e.id === result.eventId);
+                        console.log(`%c${idx + 1}. ${event?.type || 'Unknown Event'}`, 'color: #3b82f6; font-weight: bold;');
+                        console.log(`   Time: ${result.time}`);
+                        console.log(`   Position: ${result.position}`);
+                        console.log(`   Full Result:`, result);
+                    });
+                    console.log('%c=== END ===', 'color: #f97316; font-weight: bold;');
+                    
+                    alert(`Found ${liamResults.length} results for Liam Clausen. Check console (F12) for details.`);
+                    return;
+                }
+
+                // Handle Ctrl+Shift+L for Quick Dev Login Modal
                 if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'L') {
                     e.preventDefault();
+                    openModal('signInModal');
+                    setTimeout(() => quickDevLogin(), 100);
+                    return;
+                }
+                
+                // Handle Ctrl+Shift+D for Direct Dev Login
+                if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'D') {
+                    e.preventDefault();
+                    console.log('🔐 Ctrl+Shift+D pressed - dev login initiated');
+                    const password = localStorage.getItem('devPassword');
+                    if (!password) {
+                        console.error('❌ Dev password not set! Run: devLogin.setPassword("your-password")');
+                        return;
+                    }
+                    
+                    // Open modal and auto-login
                     openModal('signInModal');
                     setTimeout(() => quickDevLogin(), 100);
                     return;
@@ -2220,6 +2283,9 @@
                 <button id="tab-results" class="sport-tab px-3 sm:px-4 py-2 text-xs sm:text-sm font-semibold text-slate-600 hover:text-cyan-600 border-b-3 border-transparent transition whitespace-nowrap" onclick="showView('results')">
                     📊 Reports
                 </button>
+                <button id="tab-statistics" class="sport-tab px-3 sm:px-4 py-2 text-xs sm:text-sm font-semibold text-slate-600 hover:text-cyan-600 border-b-3 border-transparent transition whitespace-nowrap" onclick="showView('statistics')">
+                    📈 Statistics
+                </button>
                 <button id="tab-settings" class="sport-tab px-3 sm:px-4 py-2 text-xs sm:text-sm font-semibold text-slate-600 hover:text-cyan-600 border-b-3 border-transparent transition whitespace-nowrap" onclick="showView('settings')">
                     ⚙️ Settings
                 </button>
@@ -2468,9 +2534,9 @@
                         </div>
                         <div class="flex gap-2">
                             <select id="sortBy" onchange="renderEventCompetitorsResults()" class="px-3 py-2 border border-slate-300 rounded-lg text-sm">
+                                <option value="position" selected>Sort by Position</option>
                                 <option value="house">Sort by House</option>
-                                <option value="name" selected>Sort by Name</option>
-                                <option value="position">Sort by Position</option>
+                                <option value="name">Sort by Name</option>
                             </select>
                         </div>
                     </div>
@@ -5903,6 +5969,26 @@ bob@example.com,scorekeeper
                         localStorage.setItem(`${currentSport}_competitors`, JSON.stringify(competitors));
                     }
                     
+                    // BACKFILL: Fill in missing ageGroup values in results
+                    // (from results created before this fix was deployed)
+                    let backfilled = 0;
+                    results.forEach(result => {
+                        if (!result.ageGroup && result.competitorId) {
+                            const competitor = competitors.find(c => c.id === result.competitorId);
+                            if (competitor) {
+                                const ageGroup = getCompetitorCurrentAge(competitor);
+                                result.ageGroup = ageGroup;
+                                backfilled++;
+                                console.log(`🔄 Backfilled ageGroup for ${competitor.name}: "${ageGroup}"`);
+                            }
+                        }
+                    });
+                    
+                    if (backfilled > 0) {
+                        console.log(`✅ Backfilled ${backfilled} result entries with missing ageGroup values`);
+                        localStorage.setItem(`${currentSport}_results`, JSON.stringify(results));
+                    }
+                    
                     // Load organizers from Firestore
                     console.log('📥 Loading organizers from Firestore...');
                     await loadOrganizersFromFirestore();
@@ -7574,14 +7660,16 @@ bob@example.com,scorekeeper
                     else if (result.position === 3) totalPoints += 1;
                 });
                 
+                const houseColor = getHouseColor(house.color);
+                
                 return `
-                    <div class="tournament-house-card bg-slate-50 border-2 border-slate-200 rounded-lg p-4 hover:border-${house.color}-400 transition cursor-pointer hover:shadow-lg" data-house-id="${house.id}">
+                    <div class="tournament-house-card bg-slate-50 border-2 border-slate-200 rounded-lg p-4 transition cursor-pointer hover:shadow-lg" style="border-left: 4px solid ${houseColor};" data-house-id="${house.id}">
                         <div class="flex justify-between items-start mb-3">
                             <div>
                                 <p class="font-bold text-lg text-slate-900">${house.name}</p>
-                                <p class="text-2xl font-bold text-cyan-600">${totalPoints} Points</p>
+                                <p class="text-2xl font-bold" style="color: ${houseColor};">${totalPoints} Points</p>
                             </div>
-                            <div class="w-6 h-6 rounded-full" style="background-color: ${getHouseColor(house.color)}"></div>
+                            <div class="w-6 h-6 rounded-full" style="background-color: ${houseColor}"></div>
                         </div>
                         <p class="text-xs text-slate-500 mb-3">Click to view contributors</p>
                         <div class="flex gap-2">
@@ -7632,7 +7720,7 @@ bob@example.com,scorekeeper
             
             // Calculate points per competitor
             const contributorsList = houseCompetitors.map(competitor => {
-                const competitorResults = results.filter(r => r.competitorId === competitor.id);
+                const competitorResults = results.filter(r => r.competitorId === competitor.id && r.tournamentId === currentTournamentId);
                 
                 let totalPoints = 0;
                 const contributions = [];
@@ -7645,17 +7733,20 @@ bob@example.com,scorekeeper
                         pointsForResult += 1;
                     }
                     
+                    // Convert position to number for comparisons
+                    const position = result.position ? parseInt(result.position) : null;
+                    
                     // Bonus points for placement
-                    if (result.position === 1) pointsForResult += 4;
-                    else if (result.position === 2) pointsForResult += 2;
-                    else if (result.position === 3) pointsForResult += 1;
+                    if (position === 1) pointsForResult += 4;
+                    else if (position === 2) pointsForResult += 2;
+                    else if (position === 3) pointsForResult += 1;
                     
                     if (pointsForResult > 0) {
                         totalPoints += pointsForResult;
                         contributions.push({
                             eventId: result.eventId,
                             time: result.time,
-                            position: result.position,
+                            position: position,
                             points: pointsForResult
                         });
                     }
@@ -7671,44 +7762,98 @@ bob@example.com,scorekeeper
             .filter(c => c.totalPoints > 0)
             .sort((a, b) => b.totalPoints - a.totalPoints);
             
-            let html = `
-                <div class="bg-white rounded-xl shadow-xl max-w-2xl w-full p-6 max-h-96 overflow-y-auto">
-                    <div class="flex items-center gap-3 mb-6">
-                        <div class="w-8 h-8 rounded-full" style="background-color: ${getHouseColor(house.color)}"></div>
-                        <h3 class="text-2xl font-bold text-slate-900">${house.name} - Contributors</h3>
-                    </div>
-                    
-                    ${contributorsList.length > 0 ? `
-                        <div class="space-y-3">
-                            ${contributorsList.map((contributor, idx) => `
-                                <div class="bg-slate-50 rounded-lg p-4 border-l-4" style="border-left-color: ${getHouseColor(house.color)}">
-                                    <div class="flex items-center justify-between mb-2">
-                                        <p class="font-bold text-slate-900">${idx + 1}. ${contributor.name}</p>
-                                        <span class="px-3 py-1 rounded-full text-slate-900 font-bold text-sm" style="background-color: ${getHouseColor(house.color)}40">${contributor.totalPoints} pts</span>
-                                    </div>
-                                    <p class="text-xs text-slate-600">Contributed from ${contributor.contributions.length} result${contributor.contributions.length > 1 ? 's' : ''}</p>
+            const totalHousePoints = contributorsList.reduce((sum, c) => sum + c.totalPoints, 0);
+            
+            // Build contributors HTML
+            let contributionsHtml = '';
+            if (contributorsList.length > 0) {
+                contributionsHtml = `<div class="space-y-3">`;
+                
+                contributorsList.forEach((contributor, idx) => {
+                    let eventsHtml = '';
+                    if (contributor.contributions && contributor.contributions.length > 0) {
+                        eventsHtml = contributor.contributions.map(contrib => {
+                            const event = events.find(e => e.id === contrib.eventId);
+                            const eventName = event ? event.type : 'Event';
+                            
+                            let positionBadge = 'No placement';
+                            if (contrib.position === 1) positionBadge = '🥇 1st';
+                            else if (contrib.position === 2) positionBadge = '🥈 2nd';
+                            else if (contrib.position === 3) positionBadge = '🥉 3rd';
+                            else if (contrib.position) positionBadge = contrib.position + 'th';
+                            
+                            const timeStr = contrib.time ? ' • ' + contrib.time : '';
+                            
+                            return `<div class="text-xs bg-white border border-slate-200 rounded p-2 flex justify-between items-start">
+                                <div class="flex-1">
+                                    <p class="font-semibold text-slate-900">${eventName}</p>
+                                    <p class="text-slate-600">${positionBadge}${timeStr}</p>
                                 </div>
-                            `).join('')}
-                        </div>
-                    ` : `<p class="text-slate-500 text-center py-6">No contributors yet.</p>`}
+                                <span class="font-bold ml-2" style="color: ${getHouseColor(house.color)};">+${contrib.points} pts</span>
+                            </div>`;
+                        }).join('');
+                    }
                     
-                    <button onclick="closeDynamicModal('tournamentHouseDetailsModal')" class="w-full mt-6 bg-slate-300 hover:bg-slate-400 text-slate-900 px-4 py-2 rounded-lg font-semibold">
-                        Close
-                    </button>
-                </div>
-            `;
+                    const houseColor = getHouseColor(house.color);
+                    
+                    contributionsHtml += `<div class="bg-slate-50 rounded-lg p-4 border-l-4" style="border-left-color: ${houseColor}">
+                        <div class="flex items-center justify-between mb-2">
+                            <p class="font-bold text-slate-900">${idx + 1}. ${contributor.name}</p>
+                            <span class="px-3 py-1 rounded-full text-white font-bold text-sm" style="background-color: ${houseColor}">${contributor.totalPoints} pts</span>
+                        </div>
+                        <div class="space-y-1 ml-2">${eventsHtml}</div>
+                    </div>`;
+                });
+                
+                contributionsHtml += `</div>`;
+            } else {
+                contributionsHtml = `<p class="text-slate-500 text-center py-6">No competitors with results yet.</p>`;
+            }
+            
+            const houseColor = getHouseColor(house.color);
             
             const modalId = 'tournamentHouseDetailsModal';
             const existingModal = document.getElementById(modalId);
             if (existingModal) existingModal.remove();
             
-            const modalHtml = `
-                <div id="${modalId}" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 max-h-screen overflow-y-auto">
-                    ${html}
+            const html = `<div class="bg-white rounded-xl shadow-2xl p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                <div class="flex items-center gap-3 mb-2">
+                    <div class="w-8 h-8 rounded-full" style="background-color: ${houseColor}"></div>
+                    <h3 class="text-2xl font-bold text-slate-900">${house.name}</h3>
                 </div>
-            `;
+                <p class="text-3xl font-bold mb-6" style="color: ${houseColor}">Total: ${totalHousePoints} Points</p>
+                
+                <p class="text-sm font-semibold text-slate-600 mb-4">Competitors & Points:</p>
+                ${contributionsHtml}
+                
+                <button onclick="closeTournamentHouseDetailsModal()" class="w-full mt-6 bg-slate-300 hover:bg-slate-400 text-slate-900 px-4 py-2 rounded-lg font-semibold">
+                    Close
+                </button>
+            </div>`;
             
+            const modalHtml = `<div id="${modalId}" class="modal items-center justify-center">
+                ${html}
+            </div>`;
+            
+            console.log('🏠 Inserting tournament house modal');
             document.body.insertAdjacentHTML('beforeend', modalHtml);
+            
+            // Make it active
+            setTimeout(() => {
+                const modal = document.getElementById(modalId);
+                if (modal) {
+                    modal.classList.add('active');
+                    console.log('🏠 Tournament house modal visible');
+                }
+            }, 10);
+        }
+
+        function closeTournamentHouseDetailsModal() {
+            const modal = document.getElementById('tournamentHouseDetailsModal');
+            if (modal) {
+                modal.classList.remove('active');
+                setTimeout(() => modal.remove(), 100);
+            }
         }
 
         function editTournamentHouse(houseId) {
@@ -7742,11 +7887,36 @@ bob@example.com,scorekeeper
                 return event !== undefined;
             });
 
-            // Get gender filter state
+            // Get gender and sort preference
             window.tournamentStatsGender = window.tournamentStatsGender || null;
+            window.tournamentStatsSort = window.tournamentStatsSort || 'entries';
 
             // Calculate statistics
-            let recordsBroken = 0;
+            // COUNT BROKEN RECORDS from the records array (not results)
+            // Records are tournament records by event/gender/age - only these can be broken
+            const recordsBroken = records.filter(r => {
+                if (!r.recordBroken) return false;
+                
+                // Match by tournamentId if available
+                if (r.tournamentId) {
+                    return r.tournamentId === currentTournamentId;
+                }
+                
+                // Fallback: check if record's event is in current tournament
+                const event = tournamentEvents.find(e => e.id === r.eventId);
+                return event !== undefined;
+            }).length;
+            console.log(`📊 TOURNAMENT STATS - Records broken: ${recordsBroken}`);
+            console.log(`📊 TOURNAMENT STATS - Total records in app: ${records.length}`);
+            console.log(`📊 TOURNAMENT STATS - Current tournament: ${currentTournamentId}`);
+            const brokenRecordsList = records.filter(r => {
+                if (!r.recordBroken) return false;
+                if (r.tournamentId) return r.tournamentId === currentTournamentId;
+                const event = tournamentEvents.find(e => e.id === r.eventId);
+                return event !== undefined;
+            });
+            console.log('📊 TOURNAMENT STATS - All broken records:', brokenRecordsList.map(r => ({ competitorName: r.competitorName, eventType: r.eventType, tournamentId: r.tournamentId })));
+            
             let competitorsParticipated = new Set();
             
             // VALIDATION: Only count results that have actual recorded data (time or position)
@@ -7762,14 +7932,15 @@ bob@example.com,scorekeeper
 
             validResults.forEach(result => {
                 competitorsParticipated.add(result.competitorId);
-                if (result.recordBroken) recordsBroken++;
                 
                 // Count wins/placings for each competitor
                 if (!competitorScores[result.competitorId]) {
                     competitorScores[result.competitorId] = { count: 0, records: 0, name: '', id: result.competitorId, gender: '' };
                 }
                 competitorScores[result.competitorId].count++;
-                if (result.recordBroken) competitorScores[result.competitorId].records++;
+                // Count records broken by this competitor from the records array
+                const competitorBrokenRecords = records.filter(r => r.recordBroken && r.competitorId === result.competitorId && r.tournamentId === currentTournamentId).length;
+                competitorScores[result.competitorId].records = competitorBrokenRecords;
             });
 
             // Get competitor names and gender
@@ -7782,9 +7953,16 @@ bob@example.com,scorekeeper
 
             // Sort and get top 3, optionally filtered by gender
             let topCompetitors = Object.values(competitorScores)
-                .filter(comp => !window.tournamentStatsGender || normalizeGender(comp.gender) === normalizeGender(window.tournamentStatsGender))
-                .sort((a, b) => b.count - a.count)
-                .slice(0, 3);
+                .filter(comp => !window.tournamentStatsGender || normalizeGender(comp.gender) === normalizeGender(window.tournamentStatsGender));
+            
+            // Apply sort preference
+            if (window.tournamentStatsSort === 'housePoints') {
+                topCompetitors.sort((a, b) => b.records - a.records); // Sort by records broken
+            } else {
+                topCompetitors.sort((a, b) => b.count - a.count); // Sort by entries (default)
+            }
+            
+            topCompetitors = topCompetitors.slice(0, 3);
 
             // Build event results with placings by gender and age
             let eventsResultsHTML = '';
@@ -7792,8 +7970,14 @@ bob@example.com,scorekeeper
                 // VALIDATION: Only show results with actual recorded data
                 const eventResults = validResults.filter(r => r.eventId === event.id);
                 
-                // Count records in this event
-                const eventRecords = eventResults.filter(r => r.recordBroken).length;
+                // Count records broken in this event (from records array, not results)
+                // Use fallback logic: check tournamentId first, then check if event is in tournament
+                const eventRecords = records.filter(r => {
+                    if (!r.recordBroken) return false;
+                    if (r.eventId !== event.id) return false;
+                    if (r.tournamentId) return r.tournamentId === currentTournamentId;
+                    return true; // Include if no tournamentId set
+                }).length;
                 
                 // Ensure event has a valid name
                 const eventName = event?.type || 'Unknown Event';
@@ -7899,8 +8083,11 @@ bob@example.com,scorekeeper
                             </div>
                         </div>
                     </div>
-                    <button onclick="exportTournamentStatistics('${currentTournamentId}')" class="ml-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold text-sm whitespace-nowrap export-only">
+                    <button onclick="exportTournamentStatistics('${currentTournamentId}')" class="ml-4 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold text-sm whitespace-nowrap">
                         ⬇️ Export Stats
+                    </button>
+                    <button onclick="exportTopCompetitorsByEvent()" class="ml-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold text-sm whitespace-nowrap">
+                        📥 Export Top 3
                     </button>
                 </div>
 
@@ -7919,7 +8106,14 @@ bob@example.com,scorekeeper
                             </button>
                         </div>
                     </div>
-                    <div class="space-y-3">
+                    <div class="flex gap-2 mb-4">
+                        <button onclick="window.tournamentStatsSort = 'entries'; renderTournamentStatistics();" class="px-4 py-2 ${window.tournamentStatsSort !== 'housePoints' ? 'bg-amber-600 text-white' : 'bg-amber-100 text-amber-700'} hover:bg-amber-700 rounded-lg font-semibold text-sm">
+                            📊 Most Entries
+                        </button>
+                        <button onclick="window.tournamentStatsSort = 'housePoints'; renderTournamentStatistics();" class="px-4 py-2 ${window.tournamentStatsSort === 'housePoints' ? 'bg-purple-600 text-white' : 'bg-purple-100 text-purple-700'} hover:bg-purple-700 rounded-lg font-semibold text-sm">
+                            🏠 Most House Points
+                        </button>
+                    </div>
                         ${topCompetitors.length > 0 ? topCompetitors.map((competitor, index) => {
                             const medals = ['🥇', '🥈', '🥉'];
                             const medal = medals[index] || '';
@@ -7995,7 +8189,12 @@ bob@example.com,scorekeeper
             csvContent += `Events,${tournamentEvents.length}\n`;
             csvContent += `Total Competitors,${new Set(tournamentResults.map(r => r.competitorId)).size}\n`;
             csvContent += `Total Results,${tournamentResults.length}\n`;
-            csvContent += `Records Broken,${tournamentResults.filter(r => r.recordBroken).length}\n\n`;
+            csvContent += `Records Broken,${records.filter(r => {
+                if (!r.recordBroken) return false;
+                if (r.tournamentId) return r.tournamentId === tournamentId;
+                const event = tournamentEvents.find(e => e.id === r.eventId);
+                return event !== undefined;
+            }).length}\n\n`;
 
             // Event-by-event results
             csvContent += 'Event Results\n';
@@ -8010,7 +8209,12 @@ bob@example.com,scorekeeper
                 });
                 const top3 = sortedResults.slice(0, 3);
                 
-                const eventRecords = eventResults.filter(r => r.recordBroken).length;
+                const eventRecords = records.filter(r => {
+                    if (!r.recordBroken) return false;
+                    if (r.eventId !== event.id) return false;
+                    if (r.tournamentId) return r.tournamentId === tournamentId;
+                    return true; // Include if no tournamentId
+                }).length;
                 const eventName = event?.type || 'Unknown Event';
 
                 if (top3.length > 0) {
@@ -9551,10 +9755,9 @@ bob@example.com,scorekeeper
             if (!timeStr) return Infinity;
             
             timeStr = timeStr.trim();
-            const num = parseFloat(timeStr);
-            if (!isNaN(num)) return num;
             
-            // Handle mm:ss.ms format (e.g., "1:23.45" or "45:23.67")
+            // Handle mm:ss.ms format FIRST (e.g., "1:23.45" or "45:23.67")
+            // MUST check this before parseFloat() which only takes first number!
             if (timeStr.includes(':')) {
                 const parts = timeStr.split(':');
                 if (parts.length === 2) {
@@ -9587,6 +9790,10 @@ bob@example.com,scorekeeper
                     }
                 }
             }
+            
+            // Only try generic number parse as fallback
+            const num = parseFloat(timeStr);
+            if (!isNaN(num)) return num;
             
             return Infinity; // If can't parse, put at end
         }
@@ -10266,6 +10473,7 @@ bob@example.com,scorekeeper
 
             // Apply sorting based on dropdown
             const sortBy = document.getElementById('sortBy')?.value || 'name';
+            console.log('📊 SORTING - sortBy dropdown value:', sortBy);
             
             // ALWAYS calculate positions by sorting by time first
             const positionsByCompetitorId = {};
@@ -10275,6 +10483,8 @@ bob@example.com,scorekeeper
                 return result && result.time;
             });
             
+            console.log('📊 SORTING - competitorsWithTimes:', competitorsWithTimes.map(c => ({ id: c.id, name: c.name })));
+            
             const timeSorted = [...competitorsWithTimes].sort((a, b) => {
                 const resultA = results.find(r => r.eventId === currentEventId && r.competitorId === a.id);
                 const resultB = results.find(r => r.eventId === currentEventId && r.competitorId === b.id);
@@ -10283,14 +10493,31 @@ bob@example.com,scorekeeper
                 
                 const secondsA = convertTimeToSeconds(timeA);
                 const secondsB = convertTimeToSeconds(timeB);
-                return secondsA - secondsB;
+                
+                console.log(`📊 SORTING - Comparing ${a.name} (${timeA} = ${secondsA}s) vs ${b.name} (${timeB} = ${secondsB}s), isFieldEvent=${isFieldEvent}`);
+                
+                // For field events (distance), higher is better (descending)
+                // For track events (time), lower is better (ascending)
+                if (isFieldEvent) {
+                    return secondsB - secondsA; // Descending: higher distance first
+                } else {
+                    return secondsA - secondsB; // Ascending: lower time first
+                }
             });
+            
+            console.log('📊 SORTING - timeSorted competitors:', timeSorted.map(c => {
+                const r = results.find(res => res.competitorId === c.id && res.eventId === currentEventId);
+                return { id: c.id, name: c.name, time: r?.time };
+            }));
             
             // Assign positions ONLY to competitors with times
             timeSorted.forEach((competitor, index) => {
                 positionsByCompetitorId[competitor.id] = index + 1;
+                const r = results.find(res => res.competitorId === competitor.id && res.eventId === currentEventId);
+                console.log(`📊 SORTING - Position ${index + 1}: ${competitor.name} (${r?.time})`);
             });
             
+            console.log('📊 SORTING - positionsByCompetitorId map:', positionsByCompetitorId);
             console.log('Positions calculated:', Object.entries(positionsByCompetitorId).map(([id, pos]) => {
                 const c = competitors.find(comp => comp.id === id);
                 const r = results.find(res => res.competitorId === id && res.eventId === currentEventId);
@@ -10299,11 +10526,14 @@ bob@example.com,scorekeeper
             
             // Now sort for display according to sortBy dropdown
             if (sortBy === 'position') {
+                console.log('📊 SORTING - Applying POSITION sort');
+                console.log('📊 SORTING - Before position sort:', eligibleCompetitors.map(c => ({ id: c.id, name: c.name, pos: positionsByCompetitorId[c.id] || '-' })));
                 eligibleCompetitors.sort((a, b) => {
                     const posA = positionsByCompetitorId[a.id] || Infinity;
                     const posB = positionsByCompetitorId[b.id] || Infinity;
                     return posA - posB;
                 });
+                console.log('📊 SORTING - After position sort:', eligibleCompetitors.map(c => ({ id: c.id, name: c.name, pos: positionsByCompetitorId[c.id] || '-' })));
             } else if (sortBy === 'name') {
                 eligibleCompetitors.sort((a, b) => a.name.localeCompare(b.name));
             } else {
@@ -10408,6 +10638,9 @@ bob@example.com,scorekeeper
             
             const competitor = competitors.find(c => c.id === competitorId);
             
+            // Calculate age category at assignment time
+            const ageGroup = getCompetitorCurrentAge(competitor);
+            
             // Add the result
             results.push({
                 id: Date.now().toString(),
@@ -10416,6 +10649,7 @@ bob@example.com,scorekeeper
                 tournamentId: currentTournamentId,
                 time: '',
                 position: null,
+                ageGroup,
                 createdAt: new Date().toISOString()
             });
             
@@ -10541,6 +10775,9 @@ bob@example.com,scorekeeper
             
             const competitor = competitors.find(c => c.id === competitorId);
             
+            // Calculate age category at assignment time
+            const ageGroup = getCompetitorCurrentAge(competitor);
+            
             // Add the result (with empty time and position)
             results.push({
                 id: Date.now().toString(),
@@ -10549,6 +10786,7 @@ bob@example.com,scorekeeper
                 tournamentId: currentTournamentId,
                 time: '',
                 position: null,
+                ageGroup,
                 createdAt: new Date().toISOString()
             });
             
@@ -10683,6 +10921,12 @@ bob@example.com,scorekeeper
                 
                 calculateAndDisplayHousePoints();
                 
+                // If records tab is visible, refresh it to show any new/broken records
+                const recordsView = document.getElementById('recordsView');
+                if (recordsView && !recordsView.classList.contains('hidden') && typeof renderRecords === 'function') {
+                    renderRecords();
+                }
+                
                 // Re-render to show PP toggle update
                 if (typeof renderEventCompetitorsResults === 'function') {
                     renderEventCompetitorsResults();
@@ -10790,13 +11034,36 @@ bob@example.com,scorekeeper
             // Use the competitor's actual gender
             const competitorGender = competitor.gender || currentEventGender;
             
-            // Get competitor's CURRENT age category
-            const competitorAge = getCompetitorCurrentAge(competitor);
+            // Get the result entry to check its assigned age category
+            const result = results.find(r => r.eventId === eventId && r.competitorId === competitorId);
+            
+            // Use the RESULT's stored age category if available (most accurate)
+            // If not, fall back to recalculating from competitor data
+            let competitorAge = result?.ageGroup;
+            console.log(`🏆 RECORD CHECK - ${competitor.name}: result.ageGroup = "${result?.ageGroup}"`, result);
+            
+            if (!competitorAge) {
+                competitorAge = getCompetitorCurrentAge(competitor);
+                console.log(`🏆 RECORD CHECK - ${competitor.name}: Fallback calculated age = "${competitorAge}"`);
+            } else {
+                console.log(`🏆 RECORD CHECK - ${competitor.name}: Using stored age = "${competitorAge}"`);
+            }
             
             const recordKey = `${eventId}-${competitorGender}-${competitorAge}`;
             
-            // Use helper to get valid record (cleans archived records automatically)
-            let record = getRecordForCompetitor(competitorId, eventId, competitorGender);
+            // Clean archived records first
+            cleanAllArchivedRecords();
+            
+            // Find record by EVENT/GENDER/AGE (not by competitor!)
+            // Records are tournament records, not competitor-specific
+            let record = records.find(r => 
+                r.eventId === eventId && 
+                r.gender === competitorGender && 
+                r.ageGroup === competitorAge
+            );
+            
+            console.log(`🏆 RECORD CHECK - Looking for record: eventId=${eventId}, gender=${competitorGender}, ageGroup=${competitorAge}`)
+            console.log(`🏆 RECORD CHECK - Found record:`, record);
 
             if (!record) {
                 // First time for this event, gender, and age category combination
@@ -10811,6 +11078,7 @@ bob@example.com,scorekeeper
                     competitorName: competitor.name,
                     time,
                     timeInSeconds,
+                    tournamentId: currentTournamentId,
                     createdAt: new Date().toISOString(),
                     recordBroken: false
                 };
@@ -10822,7 +11090,9 @@ bob@example.com,scorekeeper
                 }
                 
                 records.push(record);
-                console.log('New record set:', record);
+                console.log('🏆 RECORD CHECK - New record set:', record);
+                console.log('🏆 RECORD CHECK - Total records after push:', records.length);
+                console.log('🏆 RECORD CHECK - All records:', records.map(r => ({ competitorName: r.competitorName, eventType: r.eventType, ageGroup: r.ageGroup, recordBroken: r.recordBroken })));
             } else {
                 // Check if record is broken
                 // For field events: higher is better, so new record if timeInSeconds > old
@@ -10830,6 +11100,8 @@ bob@example.com,scorekeeper
                 const isRecordBroken = isFieldEvent ? 
                     timeInSeconds > record.timeInSeconds : 
                     timeInSeconds < record.timeInSeconds;
+                
+                console.log(`🏆 RECORD CHECK - isFieldEvent=${isFieldEvent}, timeInSeconds=${timeInSeconds}, oldRecord=${record.timeInSeconds}, isRecordBroken=${isRecordBroken}`);
                 
                 if (isRecordBroken) {
                     // Record broken!
@@ -10841,6 +11113,8 @@ bob@example.com,scorekeeper
                     record.competitorName = competitor.name;
                     record.time = time;
                     record.timeInSeconds = timeInSeconds;
+                    record.ageGroup = competitorAge; // Update age group when record is broken
+                    record.gender = competitorGender; // Ensure gender matches new competitor
                     record.recordBroken = true;
                     record.previousRecord = oldRecord;
                     record.updatedAt = new Date().toISOString();
@@ -10871,22 +11145,426 @@ bob@example.com,scorekeeper
                     return;
                 }
                 
-                // Sort results by time (fastest first)
+                // Determine if field or track event
+                const event = events.find(e => e.id === eventId);
+                const isFieldEvent = event && event.category === 'Field';
+                
+                // Sort results by time (fastest first) or distance (highest first)
                 const sortedResults = [...eventResults].sort((a, b) => {
-                    const timeA = timeToSeconds(a.time);
-                    const timeB = timeToSeconds(b.time);
-                    return timeA - timeB;
+                    const timeA = convertTimeToSeconds(a.time); // Use convertTimeToSeconds for consistency
+                    const timeB = convertTimeToSeconds(b.time);
+                    
+                    if (isFieldEvent) {
+                        return timeB - timeA; // Descending: higher distance first
+                    } else {
+                        return timeA - timeB; // Ascending: lower time first
+                    }
                 });
                 
-                // Assign positions
+                // Assign positions ONLY if not already manually set
                 sortedResults.forEach((result, index) => {
-                    result.position = index + 1;
-                    console.log(`Set position for competitor ${result.competitorId}: ${result.position}`);
+                    // Only auto-assign if position is null or undefined (not manually set)
+                    if (result.position === null || result.position === undefined) {
+                        result.position = index + 1;
+                        console.log(`Auto-assigned position for competitor ${result.competitorId}: ${result.position}`);
+                    } else {
+                        console.log(`Skipping position override for competitor ${result.competitorId}: already has position ${result.position}`);
+                    }
                 });
                 
                 console.log('Auto-calculated positions complete:', sortedResults);
+                
+                // IMPORTANT: Save data after updating positions
+                trackChange('Auto-calculated positions for event');
+                saveData();
+                console.log('Positions saved to database');
             } catch (error) {
                 console.error('Error in autoCalculatePositions:', error);
+            }
+        }
+
+        function recalculateAllPositionsFromTimes() {
+            if (!requireSignIn()) return;
+            if (!requirePermission('record_results')) return;
+            
+            const confirmed = confirm(`Recalculate ALL positions in this tournament based on times ONLY?\n\nThis will overwrite existing positions with values calculated from times (fastest = 1st, etc).`);
+            if (!confirmed) return;
+            
+            try {
+                console.log('🔄 Recalculating all positions from times...');
+                
+                const tournamentEvents = events.filter(e => e.tournamentId === currentTournamentId);
+                let totalUpdated = 0;
+                
+                tournamentEvents.forEach(event => {
+                    // Get all results with times for this event
+                    const eventResults = results.filter(r => 
+                        r.eventId === event.id && 
+                        r.tournamentId === currentTournamentId && 
+                        r.time
+                    );
+                    
+                    if (eventResults.length === 0) {
+                        console.log(`  ${event.type}: No times to sort`);
+                        return;
+                    }
+                    
+                    // Sort by time/distance
+                    const isFieldEvent = event.category === 'Field';
+                    const sorted = [...eventResults].sort((a, b) => {
+                        const timeA = convertTimeToSeconds(a.time);
+                        const timeB = convertTimeToSeconds(b.time);
+                        return isFieldEvent ? timeB - timeA : timeA - timeB;
+                    });
+                    
+                    // Assign positions 1, 2, 3, ...
+                    let updatedInEvent = 0;
+                    sorted.forEach((result, index) => {
+                        const newPos = index + 1;
+                        if (result.position !== newPos) {
+                            updatedInEvent++;
+                            totalUpdated++;
+                        }
+                        result.position = newPos;
+                    });
+                    
+                    console.log(`  ✓ ${event.type}: ${updatedInEvent} positions recalculated`);
+                });
+                
+                trackChange(`Recalculated all positions from times (${totalUpdated} total)`);
+                saveData();
+                calculateCompetitorStats();
+                calculateAndDisplayHousePoints();
+                
+                alert(`✅ Recalculation complete!\n\nUpdated ${totalUpdated} positions based on times.`);
+                
+                // Close and refresh  
+                const modal = document.querySelector('.modal.active');
+                if (modal) {
+                    modal.classList.remove('active');
+                    setTimeout(() => modal.remove(), 100);
+                }
+                
+                if (typeof renderTournamentHouses === 'function') {
+                    renderTournamentHouses();
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error: ' + error.message);
+            }
+        }
+
+        function fixJasperBrownPosition() {
+            if (!requireSignIn()) return;
+            if (!requirePermission('record_results')) return;
+            
+            try {
+                // Find Jasper Brown
+                const jasper = competitors.find(c => 
+                    c.tournamentId === currentTournamentId && 
+                    c.name && 
+                    c.name.includes('Brown')
+                );
+                
+                if (!jasper) {
+                    alert('Jasper Brown not found in this tournament');
+                    return;
+                }
+                
+                // Find 50m Freestyle event
+                const freestyle50 = events.find(e => 
+                    e.tournamentId === currentTournamentId && 
+                    e.type === '50m Freestyle'
+                );
+                
+                if (!freestyle50) {
+                    alert('50m Freestyle event not found');
+                    return;
+                }
+                
+                // Find the result
+                const result = results.find(r => 
+                    r.competitorId === jasper.id && 
+                    r.eventId === freestyle50.id && 
+                    r.tournamentId === currentTournamentId
+                );
+                
+                if (!result) {
+                    alert('Result not found for Jasper Brown in 50m Freestyle');
+                    return;
+                }
+                
+                const oldPosition = result.position;
+                result.position = 3;  // Set to position 3 as shown in Quick Entry
+                
+                saveData();
+                calculateCompetitorStats();
+                calculateAndDisplayHousePoints();
+                
+                alert(`✅ Fixed Jasper Brown's 50m Freestyle position: ${oldPosition} → 3`);
+                
+                // Close and refresh house modal
+                const modal = document.querySelector('.modal.active');
+                if (modal) {
+                    modal.classList.remove('active');
+                    setTimeout(() => modal.remove(), 100);
+                }
+                
+                if (typeof renderTournamentHouses === 'function') {
+                    renderTournamentHouses();
+                }
+            } catch (error) {
+                console.error('Error fixing Jasper Brown:', error);
+                alert('Error: ' + error.message);
+            }
+        }
+
+        function fixCorruptedPositions() {
+            if (!requireSignIn()) return;
+            if (!requirePermission('record_results')) return;
+            
+            try {
+                console.log('🔨 Starting corrupted position fix...');
+                
+                // Get all results in current tournament
+                const tournamentResults = results.filter(r => r.tournamentId === currentTournamentId);
+                let fixedCount = 0;
+                
+                // Group results by event
+                const eventGroups = {};
+                tournamentResults.forEach(result => {
+                    if (!eventGroups[result.eventId]) {
+                        eventGroups[result.eventId] = [];
+                    }
+                    eventGroups[result.eventId].push(result);
+                });
+                
+                // For each event, check if any position is higher than the number of competitors with times
+                Object.keys(eventGroups).forEach(eventId => {
+                    const eventResults = eventGroups[eventId];
+                    if (!eventResults || eventResults.length === 0) return;
+                    
+                    // Get results with times
+                    const withTimes = eventResults.filter(r => r.time);
+                    const withTimesCount = withTimes.length;
+                    
+                    console.log(`   Event ${eventId}: ${eventResults.length} total, ${withTimesCount} with times`);
+                    
+                    // Check for impossible positions
+                    eventResults.forEach(result => {
+                        if (result.position && result.position > withTimesCount) {
+                            const comp = competitors.find(c => c.id === result.competitorId);
+                            console.log(`   🔨 FIX: ${comp?.name} - position ${result.position} > ${withTimesCount} with times`);
+                            result.position = null;
+                            fixedCount++;
+                        }
+                    });
+                });
+                
+                if (fixedCount > 0) {
+                    console.log(`🔨 Found ${fixedCount} corrupted positions, recalculating...`);
+                    
+                    // Recalculate positions for all events
+                    Object.keys(eventGroups).forEach(eventId => {
+                        const eventResults = eventGroups[eventId];
+                        const withTimes = eventResults.filter(r => r.time);
+                        
+                        if (withTimes.length === 0) return;
+                        
+                        const event = events.find(e => e.id === eventId);
+                        const isFieldEvent = event && event.category === 'Field';
+                        
+                        const sorted = [...withTimes].sort((a, b) => {
+                            const timeA = convertTimeToSeconds(a.time);
+                            const timeB = convertTimeToSeconds(b.time);
+                            return isFieldEvent ? timeB - timeA : timeA - timeB;
+                        });
+                        
+                        sorted.forEach((result, index) => {
+                            result.position = index + 1;
+                        });
+                    });
+                    
+                    trackChange(`Fixed ${fixedCount} corrupted positions`);
+                    saveData();
+                    calculateCompetitorStats();
+                    calculateAndDisplayHousePoints();
+                    
+                    alert(`✅ Fixed ${fixedCount} corrupted positions!`);
+                    
+                    // Close and refresh house modal
+                    const modal = document.querySelector('.modal.active');
+                    if (modal) {
+                        modal.classList.remove('active');
+                        setTimeout(() => modal.remove(), 100);
+                    }
+                    
+                    if (typeof renderTournamentHouses === 'function') {
+                        renderTournamentHouses();
+                    }
+                } else {
+                    alert('No corrupted positions found!');
+                }
+            } catch (error) {
+                console.error('Error fixing positions:', error);
+                alert('Error: ' + error.message);
+            }
+        }
+
+        function removeDuplicateEventEntries() {
+            if (!requireSignIn()) return;
+            if (!requirePermission('record_results')) return;
+            
+            try {
+                const confirmed = confirm(`Remove duplicate competitor entries in this tournament? (same competitor entered twice in same event)`);
+                if (!confirmed) return;
+                
+                console.log('🔍 Scanning for duplicate entries...');
+                
+                // Get all entries in current tournament
+                const tournamentResults = results.filter(r => r.tournamentId === currentTournamentId);
+                
+                // Find duplicates: same (eventId, competitorId) pair appearing multiple times
+                const seen = new Map();
+                let duplicatesFound = 0;
+                const indicesToRemove = [];
+                
+                tournamentResults.forEach((result, index) => {
+                    const key = `${result.eventId}|${result.competitorId}`;
+                    
+                    if (seen.has(key)) {
+                        // Duplicate found - keep the one with more data (position or time)
+                        const firstIndex = seen.get(key);
+                        const firstResult = tournamentResults[firstIndex];
+                        
+                        const firstScore = (firstResult.time ? 1 : 0) + (firstResult.position ? 1 : 0);
+                        const currentScore = (result.time ? 1 : 0) + (result.position ? 1 : 0);
+                        
+                        if (currentScore > firstScore) {
+                            // Current is better, remove the first one
+                            indicesToRemove.push(firstIndex);
+                            seen.set(key, index);
+                        } else {
+                            // First is better or equal, remove current
+                            indicesToRemove.push(index);
+                        }
+                        duplicatesFound++;
+                    } else {
+                        seen.set(key, index);
+                    }
+                });
+                
+                // Remove duplicates (in reverse order to maintain indices)
+                const uniqueIndices = new Set(indicesToRemove);
+                const newResults = results.filter((r, idx) => !uniqueIndices.has(results.indexOf(r, 0)));
+                
+                console.log(`✅ Removed ${duplicatesFound} duplicate entries`);
+                results = newResults;
+                
+                trackChange(`Removed ${duplicatesFound} duplicate event entries`);
+                saveData();
+                calculateCompetitorStats();
+                calculateAndDisplayHousePoints();
+                
+                alert(`✅ Cleanup complete!\n\nRemoved ${duplicatesFound} duplicate competitor entries.\nHouse points have been recalculated.`);
+                
+                // Close house modal if open
+                const modal = document.querySelector('.modal.active');
+                if (modal) {
+                    modal.classList.remove('active');
+                    setTimeout(() => modal.remove(), 100);
+                }
+                
+                // Refresh house cards
+                if (typeof renderTournamentHouses === 'function') {
+                    renderTournamentHouses();
+                }
+            } catch (error) {
+                console.error('Error removing duplicates:', error);
+                alert('Error: ' + error.message);
+            }
+        }
+
+        function recalculateAllPositionsInTournament() {
+            if (!requireSignIn()) return;
+            if (!requirePermission('record_results')) return;
+            
+            const confirmed = confirm(`Recalculate all positions in this tournament based on times? This will fix corrupted position data.`);
+            if (!confirmed) return;
+            
+            try {
+                console.log('🔄 Starting tournament-wide position recalculation...');
+                
+                // Get all events in current tournament
+                const tournamentEvents = events.filter(e => e.tournamentId === currentTournamentId);
+                console.log(`Found ${tournamentEvents.length} events in tournament`);
+                
+                let totalUpdated = 0;
+                
+                tournamentEvents.forEach(event => {
+                    // Get all results with times for this event
+                    const eventResults = results.filter(r => 
+                        r.eventId === event.id && 
+                        r.tournamentId === currentTournamentId && 
+                        r.time
+                    );
+                    
+                    if (eventResults.length === 0) {
+                        console.log(`  ${event.type}: No results with times`);
+                        return;
+                    }
+                    
+                    // Determine if field or track event
+                    const isFieldEvent = event.category === 'Field';
+                    
+                    // Sort by time/distance
+                    const sortedResults = [...eventResults].sort((a, b) => {
+                        const timeA = convertTimeToSeconds(a.time);
+                        const timeB = convertTimeToSeconds(b.time);
+                        
+                        if (isFieldEvent) {
+                            return timeB - timeA;
+                        } else {
+                            return timeA - timeB;
+                        }
+                    });
+                    
+                    // Recalculate positions
+                    let updated = 0;
+                    sortedResults.forEach((result, index) => {
+                        if (result.position !== index + 1) {
+                            console.log(`    ${result.competitorId}: ${result.position} → ${index + 1}`);
+                            result.position = index + 1;
+                            updated++;
+                            totalUpdated++;
+                        }
+                    });
+                    
+                    console.log(`  ✓ ${event.type}: ${updated} positions updated`);
+                });
+                
+                trackChange(`Recalculated all positions in tournament (${totalUpdated} updates)`);
+                saveData();
+                calculateCompetitorStats();
+                calculateAndDisplayHousePoints();
+                
+                console.log(`✅ Recalculation complete: ${totalUpdated} positions corrected`);
+                alert(`✅ Recalculated positions! Updated ${totalUpdated} position values.\n\nClosing house modal - please click the house card again to see updated positions.`);
+                
+                // Close house modal if open
+                const modal = document.querySelector('.modal.active');
+                if (modal) {
+                    modal.classList.remove('active');
+                    setTimeout(() => modal.remove(), 100);
+                }
+                
+                // Refresh house cards
+                if (typeof renderTournamentHouses === 'function') {
+                    renderTournamentHouses();
+                }
+            } catch (error) {
+                console.error('Error recalculating positions:', error);
+                alert('Error: ' + error.message);
             }
         }
 
@@ -11058,6 +11736,10 @@ bob@example.com,scorekeeper
             if (existingResult) {
                 existingResult.time = time;
             } else {
+                // Calculate age category at assignment time
+                const competitor = getCompetitorById(competitorId);
+                const ageGroup = competitor ? getCompetitorCurrentAge(competitor) : null;
+                
                 results.push({
                     id: Date.now().toString(),
                     heatId,
@@ -11065,7 +11747,9 @@ bob@example.com,scorekeeper
                     competitorId,
                     time,
                     lane,
-                    position: null
+                    position: null,
+                    ageGroup,
+                    createdAt: new Date().toISOString()
                 });
             }
             
@@ -11684,6 +12368,7 @@ bob@example.com,scorekeeper
                                 time: '',
                                 position: null,
                                 recordBroken: false,
+                                ageGroup: assignmentCategory, // Store the assigned age category
                                 createdAt: new Date().toISOString()
                             });
                             assignedCount++;
@@ -12707,18 +13392,176 @@ bob@example.com,scorekeeper
             return performerStats;
         }
 
+        function showExportTop3Modal() {
+            // PERMISSION CHECK: export_data
+            if (!requirePermission('export_data')) return;
+            
+            const tournament = tournaments.find(t => t.id === currentTournamentId);
+            if (!tournament) return;
+            
+            const tournamentEvents = events.filter(e => e.tournamentId === currentTournamentId);
+            
+            let modal = `
+                <div class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div class="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+                        <h2 class="text-2xl font-bold text-slate-900 mb-4">📥 Export Top 3 Competitors</h2>
+                        
+                        <p class="text-sm text-slate-600 mb-4">Select which events to include in the export:</p>
+                        
+                        <div id="exportEventsContainer" class="space-y-2 mb-6 max-h-64 overflow-y-auto border border-slate-300 rounded-lg p-3">
+                            ${tournamentEvents.map(event => `
+                                <label class="flex items-center gap-2 cursor-pointer">
+                                    <input type="checkbox" class="exportEventCheckbox" value="${event.id}" checked>
+                                    <span class="text-sm text-slate-700">${event.type}</span>
+                                </label>
+                            `).join('')}
+                        </div>
+                        
+                        <div class="flex gap-3">
+                            <button onclick="document.querySelector('.export-modal').remove();" class="flex-1 px-4 py-2 bg-slate-300 hover:bg-slate-400 text-slate-900 rounded-lg font-semibold">
+                                Cancel
+                            </button>
+                            <button onclick="executeExportTop3Competitors();" class="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold">
+                                Export
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            const wrapper = document.createElement('div');
+            wrapper.className = 'export-modal';
+            wrapper.innerHTML = modal;
+            document.body.appendChild(wrapper);
+        }
+
+        function executeExportTop3Competitors() {
+            // Get selected events
+            const selectedCheckboxes = document.querySelectorAll('.exportEventCheckbox:checked');
+            const selectedEventIds = Array.from(selectedCheckboxes).map(cb => cb.value);
+            
+            // Get selected event names
+            const selectedEventNames = events
+                .filter(e => selectedEventIds.includes(e.id))
+                .map(e => e.type);
+            
+            const tournament = tournaments.find(t => t.id === currentTournamentId);
+            if (!tournament) return;
+            
+            const tournamentEvents = events.filter(e => e.tournamentId === currentTournamentId);
+            const allResults = results.filter(r => {
+                const event = tournamentEvents.find(e => e.id === r.eventId);
+                return event !== undefined;
+            });
+            
+            const validResults = allResults.filter(result => {
+                const hasTime = result.time && result.time !== '';
+                const hasPosition = result.position !== null && result.position !== undefined;
+                return hasTime || hasPosition;
+            });
+            
+            const competitorMap = new Map();
+            
+            tournamentEvents.forEach(event => {
+                const eventResults = validResults.filter(r => r.eventId === event.id);
+                const sortedResults = eventResults.sort((a, b) => {
+                    const posA = a.position || 999;
+                    const posB = b.position || 999;
+                    return posA - posB;
+                });
+                
+                const top3 = sortedResults.slice(0, 3);
+                top3.forEach((result, index) => {
+                    const competitor = competitors.find(c => c.id === result.competitorId);
+                    if (competitor) {
+                        if (!competitorMap.has(competitor.id)) {
+                            competitorMap.set(competitor.id, competitor);
+                        }
+                    }
+                });
+            });
+            
+            // Prepare CSV data
+            let csvContent = 'Surname,FirstName,Gender,Email,AKO,House,Age,Recommended Events\n';
+            
+            const uniqueCompetitors = Array.from(competitorMap.values())
+                .sort((a, b) => a.name.localeCompare(b.name));
+            
+            uniqueCompetitors.forEach(competitor => {
+                const nameParts = competitor.name.split(' ');
+                const surname = nameParts.length > 1 ? nameParts[nameParts.length - 1] : competitor.name;
+                const firstname = nameParts.length > 1 ? nameParts.slice(0, -1).join(' ') : '';
+                
+                const house = competitor.houseId ? houses.find(h => h.id === competitor.houseId)?.name : '';
+                const email = competitor.email || '';
+                const ako = competitor.ako || '';
+                const age = competitor.age || '';
+                
+                // Get events this competitor placed in
+                const competitorEvents = validResults
+                    .filter(r => r.competitorId === competitor.id)
+                    .map(r => {
+                        const event = tournamentEvents.find(e => e.id === r.eventId);
+                        return event?.type;
+                    })
+                    .filter(e => e && selectedEventNames.includes(e))
+                    .join('; ');
+                
+                csvContent += `"${surname}","${firstname}","${competitor.gender}","${email}","${ako}","${house}","${age}","${competitorEvents}"\n`;
+            });
+            
+            // Download
+            const element = document.createElement('a');
+            element.setAttribute('href', 'data:text/csv;charset=utf-8,' + encodeURIComponent(csvContent));
+            element.setAttribute('download', `${tournament.name.replace(/\s+/g, '_')}_top3_competitors.csv`);
+            element.style.display = 'none';
+            document.body.appendChild(element);
+            element.click();
+            document.body.removeChild(element);
+            
+            // Close modal
+            document.querySelector('.export-modal').remove();
+        }
+
+        function exportTopCompetitorsByEvent() {
+            showExportTop3Modal();
+        }
+
         function renderStatistics() {
+            console.log('🎯 renderStatistics() called');
             const grid = document.getElementById('statisticsGrid');
+            console.log('📊 Grid element:', grid);
+            
+            if (!grid) {
+                console.error('❌ ERROR: statisticsGrid element not found!');
+                return;
+            }
             
             // Get sort preference from global state (default to entries)
             window.statsCurrentSort = window.statsCurrentSort || 'entries';
             window.statsCurrentGender = window.statsCurrentGender || null;
+            console.log('📊 Sort preferences:', { sort: window.statsCurrentSort, gender: window.statsCurrentGender });
             
-            // Get top performers
-            const topPerformers = calculateTopPerformers(window.statsCurrentSort, window.statsCurrentGender);
+            // Get top performers - WITH ERROR HANDLING
+            let topPerformers = [];
+            try {
+                topPerformers = calculateTopPerformers(window.statsCurrentSort, window.statsCurrentGender);
+                console.log('📊 Top performers calculated:', topPerformers.length, topPerformers);
+            } catch (error) {
+                console.error('❌ ERROR in calculateTopPerformers:', error);
+                grid.innerHTML = '<div class="text-red-600 p-4">Error calculating statistics: ' + error.message + '</div>';
+                return;
+            }
             
-            // Get all broken records
-            const brokenRecords = records.filter(r => r.recordBroken);
+            // Get all broken records with error handling
+            let brokenRecords = [];
+            try {
+                brokenRecords = records.filter(r => r.recordBroken);
+                console.log('📊 Broken records:', brokenRecords.length);
+            } catch (error) {
+                console.error('❌ ERROR filtering records:', error);
+                brokenRecords = [];
+            }
             
             let html = '';
             
@@ -12746,6 +13589,9 @@ bob@example.com,scorekeeper
                         </button>
                         <button onclick="window.statsCurrentSort = 'housePoints'; renderStatistics();" class="px-4 py-2 ${window.statsCurrentSort === 'housePoints' ? 'bg-purple-600 text-white' : 'bg-purple-100 text-purple-700'} hover:bg-purple-700 rounded-lg font-semibold text-sm">
                             🏠 Most House Points
+                        </button>
+                        <button onclick="exportTopCompetitorsByEvent();" class="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold text-sm ml-auto">
+                            📥 Export Top 3 (No Duplicates)
                         </button>
                     </div>
                     
@@ -12834,11 +13680,18 @@ bob@example.com,scorekeeper
                 html = '<div class="text-center py-12 text-slate-500">No statistics yet. Add competitors and record results to see statistics!</div>';
             }
             
+            console.log('📊 HTML generated, length:', html.length);
+            console.log('📊 Setting grid.innerHTML...');
             grid.innerHTML = html;
+            console.log('✅ renderStatistics() complete');
         }
 
         function renderRecords() {
             console.log('🎯 renderRecords() called');
+            
+            // Reload records from localStorage to get latest changes
+            records = JSON.parse(localStorage.getItem(`${currentSport}_records`) || '[]');
+            console.log('📊 Reloaded records from localStorage:', records.length, 'records');
             
             // Auto-cleanup: Remove records with wrong gender or archived age categories
             let recordsBeforeCleanup = records.length;
@@ -12859,7 +13712,13 @@ bob@example.com,scorekeeper
             });
             
             // Remove records from archived age categories
+            // BUT: Don't remove records that have been recently updated/broken
             records = records.filter(record => {
+                // Skip cleanup for recently broken records
+                if (record.recordBroken || record.updatedAt) {
+                    return true; // Keep broken records and recently updated records
+                }
+                
                 const competitor = competitors.find(c => c.id === record.competitorId);
                 if (!competitor) return true;
                 const currentAge = competitor.ageGroup || getCompetitorAgeCategory(competitor.age, competitor.yearGroup, competitor.yearGroupName) || 'Senior';
@@ -12875,6 +13734,8 @@ bob@example.com,scorekeeper
             if (removedWrongGender > 0 || removedArchivedAge > 0) {
                 saveData();
                 console.log(`✅ Cleaned up ${removedWrongGender} wrong-gender records and ${removedArchivedAge} archived-age records`);
+            } else {
+                console.log(`✅ No records needed cleanup`);
             }
             
             // Get selected event filter
@@ -12910,6 +13771,7 @@ bob@example.com,scorekeeper
             
             console.log('📊 Total records in app:', records.length);
             console.log('📊 Valid records (with events):', validRecords.length);
+            console.log('📊 Valid records details:', validRecords.map(r => ({ competitorName: r.competitorName, eventType: r.eventType, ageGroup: r.ageGroup, recordBroken: r.recordBroken, eventExists: events.some(e => e.id === r.eventId) })));
             
             if (validRecords.length === 0) {
                 grid.innerHTML = '<div class="text-center py-12 text-slate-500">No records yet. Set some times to start tracking records!</div>';
@@ -13175,6 +14037,14 @@ bob@example.com,scorekeeper
                 return;
             }
             
+            // Color mapping for borders and text
+            const colorMap = {
+                'red': '#dc2626',
+                'blue': '#2563eb',
+                'green': '#16a34a',
+                'yellow': '#eab308'
+            };
+            
             const housePoints = globalHouses.map(house => {
                 const houseCompetitors = competitors.filter(c => c.houseId === house.id && !c.tournamentId);
                 const points = results
@@ -13198,125 +14068,207 @@ bob@example.com,scorekeeper
                 return { ...house, points, competitorCount: houseCompetitors.length };
             }).sort((a, b) => b.points - a.points);
             
-            grid.innerHTML = housePoints.map((h, idx) => `
-                <div class="house-card bg-white rounded-xl shadow-lg p-6 border-t-4 border-${h.color}-500 cursor-pointer hover:shadow-xl transition" data-house-id="${h.id}">
+            grid.innerHTML = housePoints.map((h, idx) => {
+                const houseColor = colorMap[h.color] || '#666';
+                return `
+                <div class="house-card bg-white rounded-xl shadow-lg p-6 cursor-pointer hover:shadow-xl transition" style="border-top: 4px solid ${houseColor};" data-house-id="${h.id}">
                     <div class="flex items-center justify-between mb-4">
                         <h3 class="text-xl font-bold text-slate-900">${h.name}</h3>
                         <span class="text-sm font-semibold text-slate-600">#${idx + 1}</span>
                     </div>
-                    <p class="text-3xl font-bold text-${h.color}-600 mb-2">${h.points} pts</p>
+                    <p class="text-3xl font-bold mb-2" style="color: ${houseColor};">${h.points} pts</p>
                     <p class="text-slate-600 mb-3">${h.competitorCount} competitors</p>
                     <p class="text-xs text-slate-500">Click to view contributors</p>
                 </div>
-            `).join('');
+            `;}).join('');
             
             // Add click event listeners to house cards
             const houseCards = document.querySelectorAll('.house-card');
-            console.log('Found house cards:', houseCards.length);
+            console.log('🏠 Found house cards:', houseCards.length);
             
-            houseCards.forEach(card => {
-                card.addEventListener('click', function() {
+            houseCards.forEach((card, idx) => {
+                console.log(`🏠 Attaching listener to card ${idx}:`, card);
+                card.addEventListener('click', function(e) {
+                    console.log('🏠 CLICK EVENT FIRED on house card');
                     const houseId = this.getAttribute('data-house-id');
-                    console.log('House card clicked, houseId:', houseId);
-                    showHouseDetailsModal(houseId);
+                    console.log('🏠 House ID from card:', houseId);
+                    try {
+                        showHouseDetailsModal(houseId);
+                    } catch (err) {
+                        console.error('🏠 ERROR calling showHouseDetailsModal:', err);
+                    }
                 });
             });
         }
 
         function showHouseDetailsModal(houseId) {
-            console.log('showHouseDetailsModal called with houseId:', houseId);
+            console.log('🏠 showHouseDetailsModal called with houseId:', houseId);
+            console.log('🏠 Data check - houses:', houses ? houses.length : 'NO houses');
+            console.log('🏠 Data check - competitors:', competitors ? competitors.length : 'NO competitors');
+            console.log('🏠 Data check - results:', results ? results.length : 'NO results');
+            console.log('🏠 Data check - events:', events ? events.length : 'NO events');
             
-            const house = houses.find(h => h.id === houseId);
-            if (!house) {
-                alert('House not found');
-                console.log('House not found for ID:', houseId);
-                return;
-            }
-            
-            console.log('House found:', house);
-            
-            // Get competitors in this house
-            const houseCompetitors = competitors.filter(c => c.houseId === houseId);
-            
-            // Calculate points per competitor
-            const contributorsList = houseCompetitors.map(competitor => {
-                const competitorResults = results.filter(r => r.competitorId === competitor.id);
+            try {
+                const house = houses.find(h => h.id === houseId);
                 
-                let totalPoints = 0;
-                const contributions = [];
+                if (!house) {
+                    alert('House not found for ID: ' + houseId);
+                    console.log('🏠 House not found for ID:', houseId);
+                    return;
+                }
                 
-                competitorResults.forEach(result => {
-                    let pointsForResult = 0;
-                    
-                    // 1 point for participation
-                    if (result.time || result.position) {
-                        pointsForResult += 1;
-                    }
-                    
-                    // Bonus points for placement
-                    if (result.position === 1) pointsForResult += 4;
-                    else if (result.position === 2) pointsForResult += 2;
-                    else if (result.position === 3) pointsForResult += 1;
-                    
-                    if (pointsForResult > 0) {
-                        totalPoints += pointsForResult;
-                        contributions.push({
-                            eventId: result.eventId,
-                            time: result.time,
-                            position: result.position,
-                            points: pointsForResult
-                        });
-                    }
-                });
+                console.log('🏠 House found:', house.name);
                 
-                return {
-                    competitorId: competitor.id,
-                    name: competitor.name,
-                    totalPoints,
-                    contributions
+                // Get competitors in this house
+                const houseCompetitors = competitors.filter(c => c.houseId === houseId);
+                console.log('🏠 House competitors count:', houseCompetitors.length);
+                
+                // Build simple HTML first to test modal display
+                const colorMap = {
+                    'red': '#dc2626',
+                    'blue': '#2563eb',
+                    'green': '#16a34a',
+                    'yellow': '#eab308'
                 };
-            })
-            .filter(c => c.totalPoints > 0)
-            .sort((a, b) => b.totalPoints - a.totalPoints);
-            
-            let html = `
-                <div class="bg-white rounded-xl shadow-xl max-w-2xl w-full p-6 max-h-96 overflow-y-auto">
-                    <div class="flex items-center gap-3 mb-6">
-                        <div class="w-8 h-8 rounded-full bg-${house.color}-500"></div>
-                        <h3 class="text-2xl font-bold text-slate-900">${house.name} - Contributors</h3>
-                    </div>
+                const houseColorHex = colorMap[house.color] || '#666';
+                
+                // Calculate points per competitor
+                const contributorsList = houseCompetitors.map(competitor => {
+                    const competitorResults = results.filter(r => r.competitorId === competitor.id);
                     
-                    ${contributorsList.length > 0 ? `
-                        <div class="space-y-3">
-                            ${contributorsList.map((contributor, idx) => `
-                                <div class="bg-slate-50 rounded-lg p-4 border-l-4 border-${house.color}-500">
-                                    <div class="flex items-center justify-between mb-2">
-                                        <p class="font-bold text-slate-900">${idx + 1}. ${contributor.name}</p>
-                                        <span class="px-3 py-1 rounded-full bg-${house.color}-100 text-${house.color}-800 font-bold text-sm">${contributor.totalPoints} pts</span>
+                    let totalPoints = 0;
+                    const contributions = [];
+                    
+                    competitorResults.forEach(result => {
+                        let pointsForResult = 0;
+                        
+                        if (result.time || result.position) {
+                            pointsForResult += 1;
+                        }
+                        
+                        if (result.position === 1) pointsForResult += 4;
+                        else if (result.position === 2) pointsForResult += 2;
+                        else if (result.position === 3) pointsForResult += 1;
+                        
+                        if (pointsForResult > 0) {
+                            totalPoints += pointsForResult;
+                            contributions.push({
+                                eventId: result.eventId,
+                                time: result.time,
+                                position: result.position,
+                                points: pointsForResult
+                            });
+                        }
+                    });
+                    
+                    return {
+                        competitorId: competitor.id,
+                        name: competitor.name,
+                        totalPoints,
+                        contributions
+                    };
+                })
+                .filter(c => c.totalPoints > 0)
+                .sort((a, b) => b.totalPoints - a.totalPoints);
+                
+                console.log('🏠 Contributors with points:', contributorsList.length);
+                
+                // Build contributors HTML
+                let contributionsHtml = '';
+                if (contributorsList.length > 0) {
+                    contributionsHtml = `<div class="space-y-4">`;
+                    
+                    contributorsList.forEach((contributor, idx) => {
+                        let eventsHtml = '';
+                        if (contributor.contributions && contributor.contributions.length > 0) {
+                            eventsHtml = contributor.contributions.map(contrib => {
+                                const event = events.find(e => e.id === contrib.eventId);
+                                const eventName = event ? event.type : 'Event ' + contrib.eventId;
+                                
+                                let positionBadge = 'No placement';
+                                if (contrib.position === 1) positionBadge = '🥇 1st';
+                                else if (contrib.position === 2) positionBadge = '🥈 2nd';
+                                else if (contrib.position === 3) positionBadge = '🥉 3rd';
+                                else if (contrib.position) positionBadge = contrib.position + 'th';
+                                
+                                const timeStr = contrib.time ? ' • ' + contrib.time : '';
+                                
+                                return `<div class="bg-white rounded p-2 border border-slate-200 flex justify-between items-start">
+                                    <div class="flex-1">
+                                        <p class="text-sm font-semibold text-slate-900">${eventName}</p>
+                                        <p class="text-xs text-slate-600">${positionBadge}${timeStr}</p>
                                     </div>
-                                    <p class="text-xs text-slate-600">Contributed from ${contributor.contributions.length} result${contributor.contributions.length > 1 ? 's' : ''}</p>
-                                </div>
-                            `).join('')}
-                        </div>
-                    ` : `<p class="text-slate-500 text-center py-6">No contributors yet.</p>`}
+                                    <span class="text-sm font-bold ml-2" style="color: ${houseColorHex};">+${contrib.points} pts</span>
+                                </div>`;
+                            }).join('');
+                        }
+                        
+                        contributionsHtml += `<div class="bg-slate-50 rounded-lg p-4" style="border-left: 4px solid ${houseColorHex};">
+                            <div class="flex items-center justify-between mb-3">
+                                <p class="font-bold text-slate-900 text-lg">${idx + 1}. ${contributor.name}</p>
+                                <span class="px-3 py-1 rounded-full font-bold text-sm text-white" style="background-color: ${houseColorHex};">${contributor.totalPoints} pts</span>
+                            </div>
+                            <div class="space-y-2 ml-4">${eventsHtml}</div>
+                        </div>`;
+                    });
                     
-                    <button onclick="closeDynamicModal('houseDetailsModal')" class="w-full mt-6 bg-slate-300 hover:bg-slate-400 text-slate-900 px-4 py-2 rounded-lg font-semibold">
-                        Close
-                    </button>
-                </div>
-            `;
-            
-            const modalId = 'houseDetailsModal';
-            const existingModal = document.getElementById(modalId);
-            if (existingModal) existingModal.remove();
-            
-            const modalHtml = `
-                <div id="${modalId}" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4 max-h-screen overflow-y-auto">
-                    ${html}
-                </div>
-            `;
-            
-            document.body.insertAdjacentHTML('beforeend', modalHtml);
+                    contributionsHtml += `</div>`;
+                } else {
+                    contributionsHtml = `<p class="text-slate-500 text-center py-6">No contributors yet.</p>`;
+                }
+                
+                const modalId = 'houseDetailsModal';
+                
+                // Remove any existing modal
+                const existingModal = document.getElementById(modalId);
+                if (existingModal) {
+                    existingModal.remove();
+                }
+                
+                // Create modal HTML
+                const modalHtml = `<div id="${modalId}" class="modal items-center justify-center">
+                    <div class="bg-white rounded-xl shadow-2xl p-6 max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                        <div class="flex items-center gap-3 mb-6">
+                            <div class="w-8 h-8 rounded-full" style="background-color: ${houseColorHex};"></div>
+                            <h3 class="text-2xl font-bold text-slate-900">${house.name} - Contribution Breakdown</h3>
+                        </div>
+                        ${contributionsHtml}
+                        <button onclick="closeHouseDetailsModal()" class="w-full mt-6 bg-slate-300 hover:bg-slate-400 text-slate-900 px-4 py-2 rounded-lg font-semibold">
+                            Close
+                        </button>
+                    </div>
+                </div>`;
+                
+                console.log('🏠 Inserting modal');
+                document.body.insertAdjacentHTML('beforeend', modalHtml);
+                
+                // Make it active
+                setTimeout(() => {
+                    const modal = document.getElementById(modalId);
+                    if (modal) {
+                        console.log('🏠 Adding active class');
+                        modal.classList.add('active');
+                        console.log('🏠 Modal should be visible now');
+                    } else {
+                        console.error('🏠 Modal element not found after insertion!');
+                    }
+                }, 10);
+                
+            } catch (err) {
+                console.error('🏠 ERROR:', err);
+                console.error('🏠 Stack:', err.stack);
+                alert('Error: ' + err.message);
+            }
+        }
+        
+        function closeHouseDetailsModal() {
+            console.log('🏠 closeHouseDetailsModal called');
+            const modal = document.getElementById('houseDetailsModal');
+            if (modal) {
+                modal.classList.remove('active');
+                setTimeout(() => modal.remove(), 100);
+                console.log('🏠 Modal removed');
+            }
         }
 
         function showAddHouseModal() {
@@ -14334,7 +15286,9 @@ bob@example.com,scorekeeper
                 console.log('%c✅ Dev password saved!', 'color: #2ecc71; font-weight: bold;');
                 console.log('📧 Email:', window.authorizedUsers?.[0]?.email || 'pb@hurunuicollege.school.nz');
                 console.log('🔑 Password:', '••••••••');
-                console.log('⌨️ Next time, press Ctrl+Shift+L to login instantly!');
+                console.log('⌨️ Keyboard Shortcuts:');
+                console.log('   • Ctrl+Shift+D (Cmd+Shift+D on Mac) - Auto-login with saved password');
+                console.log('   • Ctrl+Shift+L (Cmd+Shift+L on Mac) - Show login modal');
             },
             
             // Show current dev credentials
@@ -14347,11 +15301,14 @@ bob@example.com,scorekeeper
                 console.log('📧 Email:', firstUser);
                 if (password) {
                     console.log('🔑 Password:', '••••••••');
-                    console.log('✅ Ready to login! Press Ctrl+Shift+L or run: devLogin.login()');
+                    console.log('%c✅ Ready to login!', 'color: #2ecc71; font-weight: bold;');
+                    console.log('⌨️ Quick Login Shortcuts:');
+                    console.log('   • Ctrl+Shift+D (Cmd+Shift+D on Mac) - Auto-login instantly');
+                    console.log('   • Ctrl+Shift+L (Cmd+Shift+L on Mac) - Show login modal');
+                    console.log('   • devLogin.login() - Programmatic login');
                 } else {
                     console.log('%c🔑 Password: NOT SET (run: devLogin.setPassword("your-password"))', 'color: #ff6b6b;');
                 }
-                console.log('⌨️ Keyboard Shortcut: Ctrl+Shift+L (or Cmd+Shift+L on Mac)');
             },
             
             // Quick login (alternative to Ctrl+Shift+L)
@@ -14384,10 +15341,15 @@ bob@example.com,scorekeeper
 ║  3. Run: devLogin.setPassword("your-password")                ║
 ║     (Replace with your actual password)                       ║
 ║                                                                ║
-║  THEN USE ONE OF THESE:                                       ║
+║  QUICK LOGIN (After setup):                                   ║
+║  • Press Ctrl+Shift+D (Cmd+Shift+D on Mac)                    ║
+║    → Auto-logs in with saved credentials instantly            ║
+║                                                                ║
 ║  • Press Ctrl+Shift+L (Cmd+Shift+L on Mac)                    ║
-║  • Click "Quick Dev Login" button in login form               ║
+║    → Shows login modal (use for manual entry)                 ║
+║                                                                ║
 ║  • Run: devLogin.login()                                      ║
+║    → Programmatic login                                       ║
 ║                                                                ║
 ║  OTHER COMMANDS:                                              ║
 ║  • devLogin.show()  - Show current credentials                ║
@@ -14756,6 +15718,76 @@ bob@example.com,scorekeeper
                 });
             },
             
+            // Recalculate positions across all events
+            recalculatePositions: () => {
+                console.log('%c🏁 RECALCULATING POSITIONS ACROSS ALL EVENTS...', 'background: #3b82f6; color: white; padding: 8px 12px; border-radius: 3px; font-weight: bold; font-size: 14px;');
+                
+                let eventCount = 0;
+                let totalResults = 0;
+                const eventSummary = [];
+                
+                // Process each event
+                events.forEach(event => {
+                    const isFieldEvent = event.category === 'Field';
+                    const eventResults = results.filter(r => r.eventId === event.id && r.time);
+                    
+                    if (eventResults.length === 0) return; // Skip events with no times
+                    
+                    eventCount++;
+                    totalResults += eventResults.length;
+                    
+                    // Group by gender
+                    const byGender = {};
+                    eventResults.forEach(r => {
+                        const gender = r.gender || 'Mixed';
+                        if (!byGender[gender]) byGender[gender] = [];
+                        byGender[gender].push(r);
+                    });
+                    
+                    // Process each gender group
+                    Object.entries(byGender).forEach(([gender, genderResults]) => {
+                        // Convert times to seconds for comparison
+                        const withSeconds = genderResults.map(r => ({
+                            ...r,
+                            seconds: isFieldEvent ? parseFloat(r.time) : timeToSeconds(r.time)
+                        }));
+                        
+                        // Sort: ascending for track (faster=lower), descending for field (higher=better)
+                        withSeconds.sort((a, b) => isFieldEvent ? b.seconds - a.seconds : a.seconds - b.seconds);
+                        
+                        // Calculate positions considering ties
+                        let position = 1;
+                        let tieCount = 0;
+                        let lastSeconds = null;
+                        
+                        console.log(`\n📊 ${event.type} (${gender})`);
+                        
+                        withSeconds.forEach((r, idx) => {
+                            if (lastSeconds !== null && r.seconds === lastSeconds) {
+                                tieCount++;
+                            } else {
+                                position = idx + 1;
+                                tieCount = 0;
+                            }
+                            lastSeconds = r.seconds;
+                            
+                            const competitor = competitors.find(c => c.id === r.competitorId);
+                            if (!competitor) return;
+                            
+                            const posLabel = tieCount > 0 ? `${position}T` : `${position}`;
+                            // Show both original time and converted seconds for clarity
+                            const displayTime = r.time.includes(':') ? `${r.time} (${r.seconds.toFixed(2)}s)` : `${r.time}s (${r.seconds.toFixed(2)}s total)`;
+                            console.log(`   ${posLabel}. ${competitor.name} - ${displayTime}`);
+                        });
+                    });
+                });
+                
+                console.log(`\n%c✅ POSITION ANALYSIS COMPLETE`, 'background: #10b981; color: white; padding: 8px 12px; border-radius: 3px; font-weight: bold;');
+                console.log(`Events analyzed: ${eventCount}`);
+                console.log(`Total results sorted: ${totalResults}`);
+                console.log('\n💡 Positions marked with "T" indicate tied results (same time)');
+            },
+            
             // Show help
             help: () => {
                 console.log(`
@@ -14777,6 +15809,12 @@ bob@example.com,scorekeeper
 ║  FIND ISSUES:                                                ║
 ║  • devRecords.findIssues()                                   ║
 ║    Finds record attribution problems without fixing          ║
+║                                                               ║
+║  RECALCULATE POSITIONS:                                      ║
+║  • devRecords.recalculatePositions()                         ║
+║    Sort and verify all results across all events by time     ║
+║    Groups by event and gender, shows rankings                ║
+║    Positions marked with "T" = tied (same time)              ║
 ║                                                               ║
 ║  Example Issues Detected:                                    ║
 ║  • Wrong gender (marked to wrong gender category)             ║
