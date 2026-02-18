@@ -14272,10 +14272,33 @@ bob@example.com,scorekeeper
                 let updateCount = 0;
                 let issuesFound = 0;
                 let removedWrongRecords = 0;
+                let removedWrongGenderRecords = 0;
                 let recordsCreated = 0;
                 const issues = [];
                 
-                // First pass: Remove records stored with wrong age category
+                // First pass: Remove records stored with wrong gender
+                records.forEach(record => {
+                    const competitor = competitors.find(c => c.id === record.competitorId);
+                    if (!competitor) return;
+                    
+                    const competitorGender = competitor.gender || 'Unknown';
+                    if (record.gender !== competitorGender) {
+                        issues.push(`⚧ Removed record for ${record.competitorName} from wrong gender (was ${record.gender}, should be ${competitorGender})`);
+                        removedWrongGenderRecords++;
+                    }
+                });
+                
+                // Remove wrong gender records (filter them out)
+                const beforeLen = records.length;
+                records = records.filter(record => {
+                    const competitor = competitors.find(c => c.id === record.competitorId);
+                    if (!competitor) return true; // Keep if competitor not found
+                    const competitorGender = competitor.gender || 'Unknown';
+                    return record.gender === competitorGender;
+                });
+                removedWrongRecords += beforeLen - records.length;
+                
+                // Second pass: Remove records stored with wrong age category
                 results.forEach(result => {
                     if (!result.recordBroken) return;
                     
@@ -14300,14 +14323,14 @@ bob@example.com,scorekeeper
                     });
                 });
                 
-                // Second pass: Clear all old record flags
+                // Third pass: Clear all old record flags
                 results.forEach(r => {
                     if (r.recordBroken) {
                         r.recordBroken = false;
                     }
                 });
                 
-                // Third pass: Iterate through all results and check against records
+                // Fourth pass: Iterate through all results and check against records
                 results.forEach(result => {
                     const competitor = competitors.find(c => c.id === result.competitorId);
                     const event = events.find(e => e.id === result.eventId);
@@ -14359,11 +14382,12 @@ bob@example.com,scorekeeper
                 });
                 
                 // Save if changes were made
-                if (updateCount > 0 || issuesFound > 0 || removedWrongRecords > 0 || recordsCreated > 0) {
+                if (updateCount > 0 || issuesFound > 0 || removedWrongRecords > 0 || recordsCreated > 0 || removedWrongGenderRecords > 0) {
                     saveData();
                     console.log('%c✅ RECHECK COMPLETE', 'background: #10b981; color: white; padding: 8px 12px; border-radius: 3px; font-weight: bold; font-size: 12px;');
                     console.log(`Updates applied: ${updateCount}`);
                     console.log(`Records created: ${recordsCreated}`);
+                    console.log(`Wrong-gender records removed: ${removedWrongGenderRecords}`);
                     console.log(`Wrong-age records removed: ${removedWrongRecords}`);
                     if (issues.length > 0) {
                         console.log('%cActions Taken:', 'color: #d97706; font-weight: bold;');
@@ -14409,6 +14433,27 @@ bob@example.com,scorekeeper
                 
                 const issues = [];
                 
+                // First: Check all records for wrong gender
+                records.forEach(record => {
+                    const competitor = competitors.find(c => c.id === record.competitorId);
+                    if (!competitor) return;
+                    
+                    const competitorGender = competitor.gender || 'Unknown';
+                    if (record.gender !== competitorGender) {
+                        issues.push({
+                            type: 'WRONG_GENDER',
+                            competitor: competitor.name,
+                            event: record.eventType,
+                            correctGender: competitorGender,
+                            wrongGender: record.gender,
+                            age: record.ageGroup,
+                            time: record.time,
+                            message: `Record attributed to wrong gender! Competitor is ${competitorGender} but record says ${record.gender}`
+                        });
+                    }
+                });
+                
+                // Then check results for other issues
                 results.forEach(result => {
                     if (!result.time) return;
                     
@@ -14508,15 +14553,24 @@ bob@example.com,scorekeeper
                 console.log(`%c⚠️  Found ${issues.length} issue(s)`, 'color: #ef4444; font-weight: bold;');
                 issues.forEach(issue => {
                     let icon = '❌';
-                    let ageDisplay = issue.age ? `${issue.gender} / ${issue.age}` : `${issue.gender} / ${issue.correctAge} (but marked as ${issue.wrongAge})`;
+                    let ageDisplay = '';
                     
                     if (issue.type === 'MISSING_RECORD_FLAG') icon = '❌';
                     else if (issue.type === 'INCORRECT_RECORD_FLAG') icon = '⚠️';
                     else if (issue.type === 'WRONG_AGE_CATEGORY') icon = '🔀';
+                    else if (issue.type === 'WRONG_GENDER') icon = '⚧';
+                    
+                    if (issue.age) {
+                        ageDisplay = issue.type === 'WRONG_GENDER' 
+                            ? `${issue.correctGender} / ${issue.age}` 
+                            : `${issue.gender} / ${issue.age}`;
+                    } else if (issue.correctAge) {
+                        ageDisplay = `${issue.gender} / ${issue.correctAge} (but marked as ${issue.wrongAge})`;
+                    }
                     
                     console.log(`\n${icon} ${issue.competitor} - ${issue.event}`);
-                    console.log(`   ${ageDisplay}`);
-                    console.log(`   Time: ${issue.time}`);
+                    if (ageDisplay) console.log(`   ${ageDisplay}`);
+                    if (issue.time) console.log(`   Time: ${issue.time}`);
                     console.log(`   ${issue.message}`);
                 });
             },
@@ -14541,6 +14595,8 @@ bob@example.com,scorekeeper
 ║    Finds record attribution problems without fixing          ║
 ║                                                               ║
 ║  Example Issues Detected:                                    ║
+║  • Wrong gender (marked to wrong gender category)             ║
+║  • Wrong age category (marked to wrong age group)             ║
 ║  • Missing record flags (time qualifies but not marked)       ║
 ║  • Incorrect flags (marked as record but doesn't qualify)     ║
 ║  • Wrong competitor (marked to wrong person)                  ║
