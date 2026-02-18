@@ -7811,7 +7811,12 @@ bob@example.com,scorekeeper
                 </div>
 
                 <div class="bg-white rounded-lg p-6 border border-slate-200">
-                    <h3 class="text-xl font-bold text-slate-900 mb-4">📋 Event Results (Click to expand)</h3>
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-xl font-bold text-slate-900">📋 Event Results (Click to expand)</h3>
+                        <button onclick="exportEventResultsPDF('${currentTournamentId}')" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold text-sm whitespace-nowrap export-only">
+                            📄 Export PDF
+                        </button>
+                    </div>
                     <div class="space-y-2">
                         ${eventsResultsHTML || '<p class="text-slate-500 text-center py-4">No events yet</p>'}
                     </div>
@@ -7892,6 +7897,246 @@ bob@example.com,scorekeeper
             document.body.appendChild(element);
             element.click();
             document.body.removeChild(element);
+        }
+
+        function exportEventResultsPDF(tournamentId) {
+            // PERMISSION CHECK: export_data
+            if (!requirePermission('export_data')) return;
+            
+            const tournament = tournaments.find(t => t.id === tournamentId);
+            const tournamentEvents = events.filter(e => e.tournamentId === tournamentId);
+            const allResults = results.filter(r => {
+                const event = tournamentEvents.find(e => e.id === r.eventId);
+                return event !== undefined;
+            });
+            
+            // VALIDATION: Only include results with actual recorded data
+            const validResults = allResults.filter(result => {
+                const hasTime = result.time && result.time !== '';
+                const hasPosition = result.position !== null && result.position !== undefined;
+                return hasTime || hasPosition;
+            });
+
+            // Collect all placements with deduplication
+            // Map: competitorId -> { name, eventPlacements: [{eventName, gender, ageCategory, place, time}] }
+            const competitorPlacements = {};
+            
+            const eventPlacements = []; // For detailed PDF content
+            
+            tournamentEvents.forEach(event => {
+                const eventResults = validResults.filter(r => r.eventId === event.id);
+                const eventName = event?.type || 'Unknown Event';
+                
+                // Group results by gender and age category
+                const resultsWithDetails = eventResults.map(result => {
+                    const comp = competitors.find(c => c.id === result.competitorId);
+                    const ageCategory = comp?.ageGroup || comp?.ageCategory || 'Unknown';
+                    const gender = comp?.gender || 'Unknown';
+                    return { ...result, comp, ageCategory, gender };
+                });
+                
+                // Group by gender first, then by age category
+                const grouped = {};
+                resultsWithDetails.forEach(item => {
+                    if (!grouped[item.gender]) grouped[item.gender] = {};
+                    if (!grouped[item.gender][item.ageCategory]) grouped[item.gender][item.ageCategory] = [];
+                    grouped[item.gender][item.ageCategory].push(item);
+                });
+                
+                // Sort each group by position and take top 3
+                Object.keys(grouped).forEach(gender => {
+                    Object.keys(grouped[gender]).forEach(ageCategory => {
+                        grouped[gender][ageCategory].sort((a, b) => {
+                            const posA = a.position || 999;
+                            const posB = b.position || 999;
+                            return posA - posB;
+                        });
+                        
+                        // Process top 3
+                        grouped[gender][ageCategory].slice(0, 3).forEach((result, idx) => {
+                            const place = idx + 1;
+                            const medalText = ['1st', '2nd', '3rd'][idx];
+                            const competitorId = result.competitorId;
+                            const competitorName = result.comp?.name || 'Unknown';
+                            
+                            // Track placement for deduplication
+                            if (!competitorPlacements[competitorId]) {
+                                competitorPlacements[competitorId] = {
+                                    name: competitorName,
+                                    gender: gender,
+                                    ageCategory: ageCategory,
+                                    eventPlacements: []
+                                };
+                            }
+                            
+                            competitorPlacements[competitorId].eventPlacements.push({
+                                event: eventName,
+                                place: medalText,
+                                gender: gender,
+                                ageCategory: ageCategory,
+                                time: result.time || ''
+                            });
+                            
+                            // Also collect for structured display
+                            eventPlacements.push({
+                                event: eventName,
+                                gender: gender,
+                                ageCategory: ageCategory,
+                                place: medalText,
+                                name: competitorName,
+                                time: result.time || ''
+                            });
+                        });
+                    });
+                });
+            });
+
+            // Generate PDF
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF({
+                orientation: 'portrait',
+                unit: 'mm',
+                format: 'a4'
+            });
+            
+            const pageWidth = doc.internal.pageSize.getWidth();
+            const pageHeight = doc.internal.pageSize.getHeight();
+            const margin = 12;
+            const lineHeight = 5;
+            let yPosition = margin;
+            
+            // Title
+            doc.setFontSize(16);
+            doc.setFont('helvetica', 'bold');
+            doc.text(`${tournament.name} - Event Results`, margin, yPosition);
+            yPosition += 8;
+            
+            // Subtitle with date
+            doc.setFontSize(10);
+            doc.setFont('helvetica', 'normal');
+            doc.text(`Generated ${new Date().toLocaleDateString()} | Sport: ${currentSport}`, margin, yPosition);
+            yPosition += 6;
+            
+            // Add a line separator
+            doc.setDrawColor(100);
+            doc.line(margin, yPosition, pageWidth - margin, yPosition);
+            yPosition += 6;
+            
+            // Group placements by event, gender, and age category
+            const eventGroups = {};
+            eventPlacements.forEach(p => {
+                const key = `${p.event}||${p.gender}||${p.ageCategory}`;
+                if (!eventGroups[key]) {
+                    eventGroups[key] = [];
+                }
+                eventGroups[key].push(p);
+            });
+            
+            // Display results grouped by event
+            let currentEvent = '';
+            Object.keys(eventGroups).forEach(key => {
+                const [event, gender, ageCategory] = key.split('||');
+                
+                // Event name as section header
+                if (event !== currentEvent) {
+                    doc.setFontSize(12);
+                    doc.setFont('helvetica', 'bold');
+                    
+                    if (yPosition > pageHeight - 30) {
+                        doc.addPage();
+                        yPosition = margin;
+                    }
+                    
+                    doc.text(`${event}`, margin, yPosition);
+                    yPosition += 6;
+                    currentEvent = event;
+                }
+                
+                // Gender and age subheader
+                doc.setFontSize(10);
+                doc.setFont('helvetica', 'bold');
+                const genderIcon = gender === 'Male' ? '[M]' : '[F]';
+                
+                if (yPosition > pageHeight - 25) {
+                    doc.addPage();
+                    yPosition = margin;
+                }
+                
+                doc.text(`${genderIcon} ${gender} - ${ageCategory}`, margin + 5, yPosition);
+                yPosition += 5;
+                
+                // Placements
+                doc.setFontSize(9);
+                doc.setFont('helvetica', 'normal');
+                
+                eventGroups[key].forEach(placement => {
+                    if (yPosition > pageHeight - 12) {
+                        doc.addPage();
+                        yPosition = margin;
+                    }
+                    
+                    const medalEmoji = placement.place === '1st' ? '🥇' : placement.place === '2nd' ? '🥈' : '🥉';
+                    const timeStr = placement.time ? ` (${placement.time}s)` : '';
+                    const text = `  ${placement.place.padEnd(4)} ${placement.name}${timeStr}`;
+                    doc.text(text, margin + 8, yPosition);
+                    yPosition += 4;
+                });
+                
+                yPosition += 2; // Space between groups
+            });
+            
+            // Add summary section for deduplicated competitors
+            if (yPosition > pageHeight - 40) {
+                doc.addPage();
+                yPosition = margin;
+            }
+            
+            yPosition += 3;
+            doc.setDrawColor(100);
+            doc.line(margin, yPosition, pageWidth - margin, yPosition);
+            yPosition += 6;
+            
+            doc.setFontSize(12);
+            doc.setFont('helvetica', 'bold');
+            doc.text('Competitors Summary (Deduplicated)', margin, yPosition);
+            yPosition += 6;
+            
+            // Sort competitors by number of placements
+            const sortedCompetitors = Object.values(competitorPlacements)
+                .sort((a, b) => b.eventPlacements.length - a.eventPlacements.length);
+            
+            doc.setFontSize(9);
+            doc.setFont('helvetica', 'normal');
+            
+            sortedCompetitors.forEach(competitor => {
+                if (yPosition > pageHeight - 12) {
+                    doc.addPage();
+                    yPosition = margin;
+                }
+                
+                const eventList = competitor.eventPlacements
+                    .map(p => `${p.event} (${p.place})`)
+                    .join(', ');
+                
+                const text = `${competitor.name} (${competitor.gender}, ${competitor.ageCategory}): ${eventList}`;
+                
+                // Wrap text if too long
+                const wrappedText = doc.splitTextToSize(text, pageWidth - 2 * margin - 5);
+                wrappedText.forEach((line, idx) => {
+                    if (yPosition > pageHeight - 12) {
+                        doc.addPage();
+                        yPosition = margin;
+                    }
+                    const x = idx === 0 ? margin + 3 : margin + 10;
+                    doc.text(line, x, yPosition);
+                    yPosition += 4;
+                });
+                
+                yPosition += 1;
+            });
+            
+            // Save the PDF
+            doc.save(`${tournament.name.replace(/\s+/g, '_')}_event_results.pdf`);
         }
 
         function renderTournamentSettings() {
