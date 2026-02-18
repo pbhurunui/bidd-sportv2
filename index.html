@@ -14124,24 +14124,23 @@ bob@example.com,scorekeeper
                     const competitorAge = competitor.ageGroup || getCompetitorAgeCategory(competitor.age, competitor.yearGroup, competitor.yearGroupName) || 'Senior';
                     
                     // Find the record for this event/gender/age combination
-                    const recordKey = `${event.id}-${competitorGender}-${competitorAge}`;
                     let record = records.find(r => r.eventId === event.id && r.gender === competitorGender && r.ageGroup === competitorAge);
                     
                     if (record) {
-                        // Check if this result should be marked as recordBroken
+                        // Check if this result beats the current record
                         const isRecordBroken = isFieldEvent ?
                             timeInSeconds > record.timeInSeconds :
                             timeInSeconds < record.timeInSeconds;
                         
-                        if (isRecordBroken && result.competitorId === record.competitorId) {
+                        // If this result beats the record, mark it as recordBroken
+                        if (isRecordBroken) {
                             result.recordBroken = true;
                             updateCount++;
-                        } else if (result.recordBroken && !isRecordBroken) {
-                            // This result was marked as record but shouldn't be
-                            result.recordBroken = false;
-                            issuesFound++;
-                            issues.push(`${competitor.name} - ${event.type} (${competitorGender} ${competitorAge}): Incorrectly marked as record`);
                         }
+                    } else {
+                        // No record exists yet - this result becomes the first record
+                        result.recordBroken = true;
+                        updateCount++;
                     }
                 });
                 
@@ -14215,12 +14214,14 @@ bob@example.com,scorekeeper
                         r.ageGroup === competitorAge
                     );
                     
+                    // Case 1: There IS a record - check if result should be marked/unmarked
                     if (record) {
                         const isRecordBroken = isFieldEvent ?
                             timeInSeconds > record.timeInSeconds :
                             timeInSeconds < record.timeInSeconds;
                         
-                        if (isRecordBroken && result.competitorId === record.competitorId && !result.recordBroken) {
+                        // Issue: Result breaks record but not marked as recordBroken
+                        if (isRecordBroken && !result.recordBroken) {
                             issues.push({
                                 type: 'MISSING_RECORD_FLAG',
                                 competitor: competitor.name,
@@ -14228,9 +14229,11 @@ bob@example.com,scorekeeper
                                 gender: competitorGender,
                                 age: competitorAge,
                                 time: result.time,
-                                message: `Should be marked as record (${record.time} → ${result.time})`
+                                message: `Should be marked as record (current: ${record.time} → new: ${result.time})`
                             });
-                        } else if (result.recordBroken && !isRecordBroken) {
+                        }
+                        // Issue: Result doesn't break record but IS marked as recordBroken
+                        else if (result.recordBroken && !isRecordBroken) {
                             issues.push({
                                 type: 'INCORRECT_RECORD_FLAG',
                                 competitor: competitor.name,
@@ -14238,19 +14241,21 @@ bob@example.com,scorekeeper
                                 gender: competitorGender,
                                 age: competitorAge,
                                 time: result.time,
-                                message: `Incorrectly marked as record (record is ${record.time})`
-                            });
-                        } else if (result.recordBroken && isRecordBroken && result.competitorId !== record.competitorId) {
-                            issues.push({
-                                type: 'WRONG_COMPETITOR',
-                                competitor: competitor.name,
-                                event: event.type,
-                                gender: competitorGender,
-                                age: competitorAge,
-                                time: result.time,
-                                message: `Marked as record but not the record holder (${record.competitorName} holds it)`
+                                message: `Incorrectly marked as record (current record: ${record.time})`
                             });
                         }
+                    }
+                    // Case 2: NO record exists - first result should be marked as recordBroken
+                    else if (!record && result.recordBroken) {
+                        issues.push({
+                            type: 'INCORRECT_RECORD_FLAG',
+                            competitor: competitor.name,
+                            event: event.type,
+                            gender: competitorGender,
+                            age: competitorAge,
+                            time: result.time,
+                            message: `Marked as record but no record exists for this category yet (should create one)`
+                        });
                     }
                 });
                 
