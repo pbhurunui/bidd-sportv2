@@ -9460,7 +9460,6 @@ bob@example.com,scorekeeper
             return timeValue;
         }
 
-        function handleTimeInputKeydown(e, currentEventId, currentCompetitorId) {
         function handleTimeInputEnter(e, eventId, competitorId, isOpenEvent = false) {
             if (e.key !== 'Enter') return;
             e.preventDefault();
@@ -9475,15 +9474,22 @@ bob@example.com,scorekeeper
             saveEventResult(eventId, competitorId, timeValue, '');
             renderEventCompetitorsResults();
             
-            // Move to next input
+            // Move to next input after render completes
             setTimeout(() => {
-                const timeInputs = document.querySelectorAll('input[placeholder*="Time"], input[placeholder*="Distance"]');
-                const currentIndex = Array.from(timeInputs).indexOf(e.target);
-                if (currentIndex >= 0 && currentIndex < timeInputs.length - 1) {
-                    timeInputs[currentIndex + 1].focus();
-                    timeInputs[currentIndex + 1].select();
+                const timeInputs = Array.from(document.querySelectorAll('input[placeholder*="Time"], input[placeholder*="Distance"]'));
+                if (timeInputs.length === 0) return;
+                
+                // Find first empty time input, or move to next one after current position
+                const firstEmpty = timeInputs.find(input => !input.value || input.value.trim() === '');
+                if (firstEmpty) {
+                    firstEmpty.focus();
+                    firstEmpty.select();
+                } else {
+                    // All have values, move to first one
+                    timeInputs[0].focus();
+                    timeInputs[0].select();
                 }
-            }, 50);
+            }, 100);
         }
 
         function handleTimeInputEnterHeats(e) {
@@ -9498,36 +9504,20 @@ bob@example.com,scorekeeper
             
             // Move to next input
             setTimeout(() => {
-                const timeInputs = document.querySelectorAll('input[placeholder*="Time"]');
-                const currentIndex = Array.from(timeInputs).indexOf(e.target);
-                if (currentIndex >= 0 && currentIndex < timeInputs.length - 1) {
-                    timeInputs[currentIndex + 1].focus();
-                    timeInputs[currentIndex + 1].select();
+                const timeInputs = Array.from(document.querySelectorAll('input[placeholder*="Time"]'));
+                if (timeInputs.length === 0) return;
+                
+                // Find first empty time input, or move to next one after current position
+                const firstEmpty = timeInputs.find(input => !input.value || input.value.trim() === '');
+                if (firstEmpty) {
+                    firstEmpty.focus();
+                    firstEmpty.select();
+                } else {
+                    // All have values, move to first one
+                    timeInputs[0].focus();
+                    timeInputs[0].select();
                 }
             }, 50);
-        }
-
-            // If Enter is pressed, save the result and move to next competitor
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                
-                // Save the current result
-                saveEventResult(currentEventId, currentCompetitorId, e.target.value, '');
-                renderEventCompetitorsResults();
-                
-                // Focus on next time input after re-render completes
-                setTimeout(() => {
-                    const timeInputs = document.querySelectorAll('input[placeholder*="Time"], input[placeholder*="Distance"]');
-                    const currentIndex = Array.from(timeInputs).findIndex(input => 
-                        input.value === e.target.value || input === document.activeElement
-                    );
-                    
-                    if (currentIndex >= 0 && currentIndex < timeInputs.length - 1) {
-                        timeInputs[currentIndex + 1].focus();
-                        timeInputs[currentIndex + 1].select();
-                    }
-                }, 100);
-            }
         }
 
         function switchOpenEventGender(gender) {
